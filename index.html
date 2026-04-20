@@ -1,553 +1,334 @@
 <!DOCTYPE html>
+
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cuaderno de Escalas · Estudio de Trompeta</title>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap" rel="stylesheet">
+<title>Escalas · Estudio</title>
 
 <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
   :root {
-    --paper: #f4ecd8;
-    --paper-dark: #e8dcc0;
-    --ink: #1a1612;
-    --ink-soft: #3a2f24;
-    --accent: #8b1e1e;
-    --accent-soft: #c4a052;
-    --rule: #a89878;
-    --shadow: rgba(26, 22, 18, 0.15);
+    --bg: #ffffff;
+    --fg: #000000;
+    --muted: #666666;
+    --rule: #cccccc;
+    --hover: #f2f2f2;
+  }
+  body.night {
+    --bg: #0a0a0a;
+    --fg: #f5f5f5;
+    --muted: #999999;
+    --rule: #333333;
+    --hover: #1a1a1a;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
-
   html, body {
-    background: var(--paper);
-    color: var(--ink);
-    font-family: 'Cormorant Garamond', Georgia, serif;
-    font-size: 17px;
-    line-height: 1.5;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.4;
     min-height: 100vh;
+    transition: background 0.2s, color 0.2s;
   }
+  .page { max-width: 1000px; margin: 0 auto; padding: 16px; }
 
-  body {
-    background-image:
-      radial-gradient(circle at 20% 30%, rgba(139, 30, 30, 0.03) 0%, transparent 50%),
-      radial-gradient(circle at 80% 70%, rgba(196, 160, 82, 0.04) 0%, transparent 50%),
-      repeating-linear-gradient(
-        0deg,
-        transparent 0,
-        transparent 39px,
-        rgba(168, 152, 120, 0.08) 39px,
-        rgba(168, 152, 120, 0.08) 40px
-      );
-  }
-
-  .page {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 40px 48px 80px;
-  }
-
-  /* ---------- Cabecera editorial ---------- */
-  header.masthead {
-    border-top: 3px double var(--ink);
-    border-bottom: 1px solid var(--ink);
-    padding: 28px 0 20px;
-    margin-bottom: 32px;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+  header {
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--fg);
+    margin-bottom: 16px;
   }
+  header h1 { font-size: 18px; font-weight: 600; }
 
-  .masthead .kicker {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
+  .toggle-btn {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--fg);
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 4px;
   }
+  .toggle-btn:hover { background: var(--hover); }
 
-  .masthead h1 {
-    font-family: 'Playfair Display', serif;
-    font-weight: 900;
-    font-size: 48px;
-    line-height: 1;
-    letter-spacing: -0.02em;
-    text-align: center;
-    font-style: italic;
-  }
-
-  .masthead h1 .amp {
-    color: var(--accent);
-    font-weight: 700;
-  }
-
-  .masthead .edition {
-    text-align: right;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    color: var(--ink-soft);
-  }
-
-  /* ---------- Barra de herramientas ---------- */
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px 24px;
-    padding: 20px 24px;
-    background: rgba(255, 253, 245, 0.5);
+  .panel {
     border: 1px solid var(--rule);
-    border-radius: 2px;
-    margin-bottom: 24px;
-    align-items: flex-end;
+    padding: 12px;
+    margin-bottom: 12px;
+    border-radius: 4px;
   }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field.grow { flex: 1; min-width: 200px; }
-
-  .field label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.2em;
+  .panel h2 {
+    font-size: 12px;
+    font-weight: 600;
     text-transform: uppercase;
-    color: var(--ink-soft);
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   input[type="text"], input[type="number"], select {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 16px;
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--ink);
-    padding: 4px 2px;
-    color: var(--ink);
+    font-family: inherit;
+    font-size: 15px;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    padding: 8px 10px;
+    color: var(--fg);
+    border-radius: 4px;
     outline: none;
-    min-width: 80px;
+    width: 100%;
   }
+  input:focus, select:focus { border-color: var(--fg); }
 
-  input:focus, select:focus {
-    border-bottom-color: var(--accent);
-    background: rgba(196, 160, 82, 0.08);
-  }
-
-  select {
-    cursor: pointer;
-    appearance: none;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%231a1612' fill='none' stroke-width='1.2'/></svg>");
-    background-repeat: no-repeat;
-    background-position: right 4px center;
-    padding-right: 18px;
-  }
-
-  .checkbox-field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding-bottom: 6px;
-  }
-
-  .checkbox-field input { accent-color: var(--accent); }
+  .checkbox-field { display: flex; align-items: center; gap: 8px; }
+  .checkbox-field input { width: auto; accent-color: var(--fg); }
   .checkbox-field label {
-    font-size: 13px;
-    letter-spacing: 0.05em;
+    font-size: 14px;
     text-transform: none;
-    color: var(--ink);
+    letter-spacing: normal;
+    color: var(--fg);
   }
 
-  /* ---------- Botones ---------- */
   button {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    padding: 10px 18px;
-    background: var(--ink);
-    color: var(--paper);
-    border: none;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 14px;
+    background: var(--fg);
+    color: var(--bg);
+    border: 1px solid var(--fg);
     cursor: pointer;
-    transition: all 0.15s;
-    border-radius: 1px;
+    border-radius: 4px;
   }
+  button:hover { opacity: 0.85; }
+  button.ghost { background: transparent; color: var(--fg); }
+  button.ghost:hover { background: var(--hover); }
+  button.small { padding: 6px 10px; font-size: 12px; }
+  button.block-btn { width: 100%; margin-top: 4px; }
 
-  button:hover {
-    background: var(--accent);
-    transform: translateY(-1px);
-    box-shadow: 0 3px 0 rgba(26, 22, 18, 0.2);
-  }
-
-  button.ghost {
-    background: transparent;
-    color: var(--ink);
-    border: 1px solid var(--ink);
-  }
-  button.ghost:hover { background: var(--ink); color: var(--paper); box-shadow: none; }
-
-  button.danger { background: var(--accent); }
-
-  button.small { padding: 5px 10px; font-size: 9px; }
-
-  /* ---------- Bloques del ejercicio ---------- */
-  .section-heading {
-    display: flex;
-    align-items: baseline;
-    gap: 16px;
-    margin: 32px 0 16px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--rule);
-  }
-
-  .section-heading h2 {
-    font-family: 'Playfair Display', serif;
-    font-style: italic;
-    font-weight: 700;
-    font-size: 24px;
-  }
-
-  .section-heading .count {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
-  }
-
-  .blocks {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 24px;
-  }
-
+  .blocks { display: flex; flex-direction: column; gap: 8px; }
   .block {
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 16px;
+    grid-template-columns: 28px 1fr auto;
     align-items: center;
-    padding: 12px 16px;
-    background: rgba(255, 253, 245, 0.7);
+    gap: 10px;
+    padding: 10px;
     border: 1px solid var(--rule);
-    border-left: 4px solid var(--accent);
-    border-radius: 1px;
+    border-radius: 4px;
   }
+  .block .num { font-weight: 600; font-size: 14px; color: var(--muted); }
+  .block .desc .main { font-weight: 600; font-size: 14px; }
+  .block .desc .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .block .actions { display: flex; gap: 4px; }
 
-  .block .ordinal {
-    font-family: 'Playfair Display', serif;
-    font-weight: 900;
-    font-size: 28px;
-    font-style: italic;
-    color: var(--accent);
-    min-width: 32px;
+  .empty {
     text-align: center;
-  }
-
-  .block .desc {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .block .desc .main {
-    font-size: 18px;
-    font-weight: 600;
-  }
-
-  .block .desc .meta {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
-  }
-
-  .block .actions {
-    display: flex;
-    gap: 4px;
-  }
-
-  .block .warn {
-    color: var(--accent);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    margin-left: 8px;
-  }
-
-  .empty-state {
-    padding: 32px;
-    text-align: center;
+    padding: 20px;
+    color: var(--muted);
+    font-size: 14px;
     border: 1px dashed var(--rule);
-    color: var(--ink-soft);
-    font-style: italic;
-    border-radius: 1px;
+    border-radius: 4px;
   }
 
-  /* ---------- Partitura ---------- */
-  .score-wrap {
-    background: #fffdf5;
-    border: 1px solid var(--ink);
-    padding: 32px 28px;
-    box-shadow: 4px 4px 0 var(--shadow);
-    margin-bottom: 24px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .score-wrap::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background-image:
-      radial-gradient(circle at 10% 90%, rgba(196, 160, 82, 0.1) 0%, transparent 30%),
-      radial-gradient(circle at 90% 10%, rgba(139, 30, 30, 0.04) 0%, transparent 30%);
-    pointer-events: none;
-  }
-
-  .score-header {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--rule);
-    margin-bottom: 20px;
-    position: relative;
-  }
-
-  .score-header .opus {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--ink-soft);
-    align-self: center;
-  }
-
-  .score-header .title {
-    font-family: 'Playfair Display', serif;
-    font-style: italic;
-    font-weight: 700;
-    font-size: 28px;
+  .score-title {
     text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .score-tempo {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .score-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    background: #ffffff;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 8px;
+  }
+  #score { min-width: 100%; }
+  #score svg { display: block; }
+
+  .score-hint {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 4px;
   }
 
-  .score-header .tempo {
-    text-align: right;
-    align-self: center;
-    font-family: 'Cormorant Garamond', serif;
-    font-style: italic;
-    font-size: 15px;
-    color: var(--ink-soft);
-  }
-
-  #score {
-    position: relative;
-    min-height: 100px;
-  }
-
-  /* ---------- Footer / Actions ---------- */
-  .bottom-bar {
+  .bottom {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 8px;
     justify-content: space-between;
-    padding-top: 20px;
-    border-top: 1px solid var(--rule);
+    margin-top: 12px;
   }
+  .bottom .group { display: flex; gap: 8px; flex-wrap: wrap; }
 
-  .bottom-bar .group { display: flex; gap: 10px; flex-wrap: wrap; }
-
-  /* ---------- Estado de rango ---------- */
-  .range-controls {
-    display: flex;
-    gap: 12px;
-    align-items: flex-end;
-  }
-
-  .range-controls .field { min-width: 80px; }
-
-  /* ---------- PDF print styles ---------- */
-  @media print {
-    body { background: white; }
-    .no-print { display: none !important; }
-    .score-wrap { box-shadow: none; border: none; padding: 0; }
-  }
-
-  /* ---------- Toast ---------- */
   .toast {
     position: fixed;
-    bottom: 24px;
     left: 50%;
+    bottom: 20px;
     transform: translateX(-50%) translateY(120%);
-    background: var(--ink);
-    color: var(--paper);
-    padding: 12px 20px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    border-radius: 1px;
-    transition: transform 0.3s ease;
-    z-index: 1000;
+    background: var(--fg);
+    color: var(--bg);
+    padding: 10px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    transition: transform 0.25s;
+    z-index: 100;
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
 
-  /* ---------- Decorativo ---------- */
-  .divider-orn {
-    text-align: center;
-    margin: 20px 0;
-    font-size: 20px;
-    color: var(--accent-soft);
-    letter-spacing: 1em;
-  }
-
-  @media (max-width: 720px) {
-    .page { padding: 24px 20px 60px; }
-    header.masthead { grid-template-columns: 1fr; text-align: center; }
-    .masthead .edition, .masthead .kicker { text-align: center; }
-    .masthead h1 { font-size: 36px; }
-    .block { grid-template-columns: auto 1fr; }
-    .block .actions { grid-column: 2; justify-self: start; }
+  @media (max-width: 500px) {
+    .row { grid-template-columns: 1fr 1fr; }
+    header h1 { font-size: 16px; }
   }
 </style>
+
 </head>
 <body>
 <div class="page">
 
-  <header class="masthead no-print">
-    <div class="kicker">Ed. Privada · Uso diario</div>
-    <h1>Cuaderno <span class="amp">&amp;</span> Escalas</h1>
-    <div class="edition">Vol. I · Trompeta en Do</div>
+  <header>
+    <h1>Escalas · Estudio</h1>
+    <button class="toggle-btn" id="nightToggle">Modo noche</button>
   </header>
 
-  <!-- Panel de construcción -->
-  <div class="toolbar no-print">
-    <div class="field">
-      <label>Tónica</label>
-      <select id="root">
-        <option>C</option><option>C#</option><option>Db</option>
-        <option>D</option><option>D#</option><option>Eb</option>
-        <option>E</option><option>F</option><option>F#</option>
-        <option>Gb</option><option>G</option><option>G#</option>
-        <option>Ab</option><option>A</option><option>A#</option>
-        <option>Bb</option><option>B</option>
-      </select>
+  <div class="panel">
+    <h2>Nuevo bloque</h2>
+    <div class="row">
+      <div class="field">
+        <label>Tónica (sonido real)</label>
+        <select id="root">
+          <option>C</option><option>C#</option><option>Db</option>
+          <option>D</option><option>D#</option><option>Eb</option>
+          <option>E</option><option>F</option><option>F#</option>
+          <option>Gb</option><option>G</option><option>G#</option>
+          <option>Ab</option><option>A</option><option>A#</option>
+          <option>Bb</option><option>B</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Escala</label>
+        <select id="scale"></select>
+      </div>
+      <div class="field">
+        <label>Patrón</label>
+        <select id="pattern"></select>
+      </div>
+      <div class="field">
+        <label>Octavas</label>
+        <select id="octaves">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Figura</label>
+        <select id="duration">
+          <option value="q">Negras</option>
+          <option value="8" selected>Corcheas</option>
+          <option value="16">Semicorcheas</option>
+        </select>
+      </div>
     </div>
-
-    <div class="field grow">
-      <label>Escala</label>
-      <select id="scale"></select>
-    </div>
-
-    <div class="field grow">
-      <label>Patrón</label>
-      <select id="pattern"></select>
-    </div>
-
-    <div class="field">
-      <label>Octavas</label>
-      <select id="octaves">
-        <option value="1">1</option>
-        <option value="2" selected>2</option>
-        <option value="3">3</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label>Figura</label>
-      <select id="duration">
-        <option value="8">Corcheas</option>
-        <option value="16" selected>Semicorcheas</option>
-        <option value="8t">Tresillos</option>
-      </select>
-    </div>
-
-    <button id="addBlock">＋ Añadir</button>
+    <button class="block-btn" id="addBlock">＋ Añadir al ejercicio</button>
   </div>
 
-  <!-- Opciones globales del ejercicio -->
-  <div class="toolbar no-print">
-    <div class="field grow">
-      <label>Título</label>
-      <input type="text" id="title" value="Rutina del día" />
-    </div>
-
-    <div class="field">
-      <label>Tempo</label>
-      <input type="number" id="tempo" value="80" min="30" max="240" />
-    </div>
-
-    <div class="field">
-      <label>Compás</label>
-      <select id="timesig">
-        <option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option>
-      </select>
-    </div>
-
-    <div class="range-controls">
+  <div class="panel">
+    <h2>Ejercicio</h2>
+    <div class="row">
       <div class="field">
-        <label>Nota min</label>
+        <label>Título</label>
+        <input type="text" id="title" value="Rutina del día" />
+      </div>
+      <div class="field">
+        <label>Tempo</label>
+        <input type="number" id="tempo" value="80" min="30" max="240" />
+      </div>
+      <div class="field">
+        <label>Compás</label>
+        <select id="timesig">
+          <option>4/4</option><option>3/4</option><option>2/4</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Nota min (escrita)</label>
         <input type="text" id="rangeMin" value="F#3" />
       </div>
       <div class="field">
-        <label>Nota max</label>
+        <label>Nota max (escrita)</label>
         <input type="text" id="rangeMax" value="C6" />
       </div>
     </div>
-
-    <div class="checkbox-field">
-      <input type="checkbox" id="useKeySig" />
-      <label for="useKeySig">Usar armadura</label>
+    <div class="row">
+      <div class="checkbox-field">
+        <input type="checkbox" id="useKeySig" />
+        <label for="useKeySig">Usar armadura</label>
+      </div>
+      <div class="checkbox-field">
+        <input type="checkbox" id="bbTrumpet" checked />
+        <label for="bbTrumpet">Trompeta en Sib (transportar)</label>
+      </div>
     </div>
   </div>
 
-  <!-- Bloques -->
-  <div class="section-heading no-print">
-    <h2>Ejercicios del día</h2>
-    <span class="count" id="blockCount">Sin bloques</span>
-    <div style="flex:1"></div>
-    <button class="ghost small" id="clearBlocks">Vaciar</button>
-  </div>
-
-  <div class="blocks no-print" id="blocks">
-    <div class="empty-state" id="emptyState">
-      Añade tu primer bloque para comenzar el cuaderno del día
+  <div class="panel">
+    <h2>Bloques <span id="blockCount" style="font-weight:400; text-transform:none; letter-spacing:0"></span></h2>
+    <div class="blocks" id="blocks">
+      <div class="empty" id="emptyState">Añade un bloque para empezar</div>
+    </div>
+    <div style="margin-top: 10px; text-align: right;">
+      <button class="ghost small" id="clearBlocks">Vaciar todo</button>
     </div>
   </div>
 
-  <div class="divider-orn no-print">❦</div>
-
-  <!-- Partitura -->
-  <div class="score-wrap" id="scoreWrap">
-    <div class="score-header">
-      <div class="opus" id="opusLabel">Opus diario</div>
-      <div class="title" id="scoreTitle">Rutina del día</div>
-      <div class="tempo" id="scoreTempo">♩ = 80</div>
+  <div class="panel">
+    <div class="score-title" id="scoreTitle">Rutina del día</div>
+    <div class="score-tempo" id="scoreTempo">♩ = 80</div>
+    <div class="score-scroll" id="scoreScroll">
+      <div id="score"></div>
     </div>
-    <div id="score"></div>
+    <div class="score-hint">↔ Desliza para ver todo el ejercicio</div>
   </div>
 
-  <!-- Barra inferior -->
-  <div class="bottom-bar no-print">
+  <div class="bottom">
     <div class="group">
-      <button id="savePreset" class="ghost">Guardar rutina</button>
-      <button id="loadPreset" class="ghost">Cargar rutina</button>
-      <button id="exportJson" class="ghost">Exportar JSON</button>
+      <button class="ghost small" id="savePreset">Guardar</button>
+      <button class="ghost small" id="loadPreset">Cargar</button>
+      <button class="ghost small" id="exportJson">Exp. JSON</button>
       <input type="file" id="importFile" accept="application/json" style="display:none" />
-      <button id="importBtn" class="ghost">Importar JSON</button>
+      <button class="ghost small" id="importBtn">Imp. JSON</button>
     </div>
     <div class="group">
-      <button id="exportPdf">⬇ Exportar PDF A4</button>
+      <button id="exportPdf">⬇ PDF A4</button>
     </div>
   </div>
 
@@ -556,52 +337,30 @@
 <div class="toast" id="toast"></div>
 
 <script>
-/* =====================================================================
-   DATOS: Escalas y patrones
-   ===================================================================== */
-
-// Intervalos en semitonos desde la tónica (sin incluir la octava)
 const SCALES = {
-  // Mayor y menor clásicas
   "Mayor (Jónico)":        [0,2,4,5,7,9,11],
   "Menor natural (Eólico)":[0,2,3,5,7,8,10],
-  // Modos griegos
   "Dórico":    [0,2,3,5,7,9,10],
   "Frigio":    [0,1,3,5,7,8,10],
   "Lidio":     [0,2,4,6,7,9,11],
   "Mixolidio": [0,2,4,5,7,9,10],
   "Locrio":    [0,1,3,5,6,8,10],
-  // Menor armónica y sus modos principales
   "Menor armónica":           [0,2,3,5,7,8,11],
-  "Locrio ♮6":                [0,1,3,5,6,9,10],
-  "Jónico #5":                [0,2,4,5,8,9,11],
-  "Dórico #4 (ucraniano)":    [0,2,3,6,7,9,10],
-  "Frigio dominante":         [0,1,4,5,7,8,10],
-  "Lidio #2":                 [0,3,4,6,7,9,11],
-  "Superlocrio ♭♭7":          [0,1,3,4,6,8,9],
-  // Menor melódica y sus modos
   "Menor melódica":           [0,2,3,5,7,9,11],
-  "Dórico ♭2":                [0,1,3,5,7,9,10],
-  "Lidio aumentado":          [0,2,4,6,8,9,11],
-  "Lidio ♭7 (acústica)":      [0,2,4,6,7,9,10],
-  "Mixolidio ♭6":             [0,2,4,5,7,8,10],
-  "Locrio ♮2 (semi-dism.)":   [0,2,3,5,6,8,10],
+  "Frigio dominante":         [0,1,4,5,7,8,10],
+  "Lidio b7":                 [0,2,4,6,7,9,10],
   "Alterada (superlocrio)":   [0,1,3,4,6,8,10],
-  // Pentatónicas y blues
   "Pentatónica mayor":        [0,2,4,7,9],
   "Pentatónica menor":        [0,3,5,7,10],
   "Blues menor":              [0,3,5,6,7,10],
   "Blues mayor":              [0,2,3,4,7,9],
-  // Simétricas
   "Hexátona (tonos enteros)": [0,2,4,6,8,10],
   "Disminuida (S-T)":         [0,1,3,4,6,7,9,10],
   "Disminuida (T-S)":         [0,2,3,5,6,8,9,11],
   "Cromática":                [0,1,2,3,4,5,6,7,8,9,10,11],
-  // Bebop
   "Bebop mayor":              [0,2,4,5,7,8,9,11],
   "Bebop dominante":          [0,2,4,5,7,9,10,11],
   "Bebop dórico":             [0,2,3,4,5,7,9,10],
-  // Exóticas
   "Doble armónica (árabe)":   [0,1,4,5,7,8,11],
   "Húngara menor":            [0,2,3,6,7,8,11],
   "Napolitana menor":         [0,1,3,5,7,8,11],
@@ -612,152 +371,73 @@ const SCALES = {
   "Iwato":                    [0,1,5,6,10],
 };
 
-/* Patrones: reciben array de grados (1-indexado sobre la escala completa,
-   incluyendo octavas) y devuelven secuencia de índices 1-indexados.
-   n = número total de grados disponibles (escala × octavas + 1) */
 const PATTERNS = {
   "Subir": (n) => range(1, n),
   "Bajar": (n) => range(n, 1),
   "Subir y bajar": (n) => [...range(1, n), ...range(n-1, 1)],
   "Bajar y subir": (n) => [...range(n, 1), ...range(2, n)],
-  "Terceras ↑ (1-3, 2-4, ...)": (n) => pairs(n, 2, false),
-  "Terceras ↓ (3-1, 4-2, ...)": (n) => pairs(n, 2, true),
-  "Terceras subir y bajar":     (n) => [...pairs(n, 2, false), ...pairs(n, 2, true).reverse()],
+  "Terceras ↑": (n) => pairs(n, 2, false),
+  "Terceras ↓": (n) => pairs(n, 2, true),
+  "Terceras ↑↓": (n) => [...pairs(n, 2, false), ...pairs(n, 2, true).reverse()],
   "Cuartas ↑": (n) => pairs(n, 3, false),
   "Cuartas ↓": (n) => pairs(n, 3, true),
   "Quintas ↑": (n) => pairs(n, 4, false),
   "Sextas ↑":  (n) => pairs(n, 5, false),
-  "Octavas ↑ (si cabe)": (n) => pairs(n, 7, false),
-  "Grupos de 3 ↑ (1-2-3, 2-3-4, ...)": (n) => groups(n, 3, false),
+  "Octavas ↑": (n) => pairs(n, 7, false),
+  "Grupos de 3 ↑": (n) => groups(n, 3, false),
   "Grupos de 3 ↓": (n) => groups(n, 3, true),
-  "Grupos de 4 ↑ (1-2-3-4, ...)":      (n) => groups(n, 4, false),
-  "Grupos de 4 ↓":                     (n) => groups(n, 4, true),
-  "1-3-2-4 (terceras alt. ↑)":         (n) => altThirds(n, false),
-  "1-3-2-4 descendente":               (n) => altThirds(n, true),
-  "1-2-3-5 (pattern)":                 (n) => patternSteps(n, [0,1,2,4]),
-  "1-3-5-3 (tríada)":                  (n) => patternSteps(n, [0,2,4,2]),
-  "1-3-5-8 (arpegio)":                 (n) => patternSteps(n, [0,2,4,7]),
-  "Pivote 1-3-1-4-1-5":                (n) => pivot(n),
-  "Suspensión 1-2-1-3-1-4":            (n) => suspension(n),
+  "Grupos de 4 ↑": (n) => groups(n, 4, false),
+  "Grupos de 4 ↓": (n) => groups(n, 4, true),
+  "1-3-2-4 ↑": (n) => altThirds(n, false),
+  "1-3-2-4 ↓": (n) => altThirds(n, true),
+  "1-2-3-5": (n) => patternSteps(n, [0,1,2,4]),
+  "1-3-5-3": (n) => patternSteps(n, [0,2,4,2]),
+  "1-3-5-8": (n) => patternSteps(n, [0,2,4,7]),
+  "Pivote 1-3-1-4-1-5": (n) => pivot(n),
+  "Susp. 1-2-1-3-1-4":  (n) => suspension(n),
 };
 
-function range(a, b) {
-  const out = [];
-  if (a <= b) for (let i = a; i <= b; i++) out.push(i);
-  else        for (let i = a; i >= b; i--) out.push(i);
-  return out;
-}
-// pares con salto fijo: (1,1+s),(2,2+s)... si desc true, invierte cada par
-function pairs(n, step, desc) {
-  const out = [];
-  for (let i = 1; i + step <= n; i++) {
-    if (desc) out.push(i + step, i);
-    else      out.push(i, i + step);
-  }
-  return out;
-}
-function groups(n, size, desc) {
-  const out = [];
-  for (let i = 1; i + size - 1 <= n; i++) {
-    const g = [];
-    for (let k = 0; k < size; k++) g.push(i + k);
-    if (desc) g.reverse();
-    out.push(...g);
-  }
-  return out;
-}
-// 1,3,2,4,3,5,4,6... (ascendente) o invertido
-function altThirds(n, desc) {
-  const out = [];
-  for (let i = 1; i + 2 <= n; i++) {
-    out.push(i, i + 2);
-  }
-  if (desc) return out.slice().reverse();
-  return out;
-}
-function patternSteps(n, offsets) {
-  const out = [];
-  const maxOff = Math.max(...offsets);
-  for (let i = 1; i + maxOff <= n; i++) {
-    offsets.forEach(o => out.push(i + o));
-  }
-  return out;
-}
-function pivot(n) {
-  const out = [];
-  for (let i = 1; i + 4 <= n; i++) {
-    out.push(i, i + 2, i, i + 3, i, i + 4);
-  }
-  return out;
-}
-function suspension(n) {
-  const out = [];
-  for (let i = 1; i + 3 <= n; i++) {
-    out.push(i, i + 1, i, i + 2, i, i + 3);
-  }
-  return out;
-}
+function range(a, b){ const o=[]; if(a<=b) for(let i=a;i<=b;i++) o.push(i); else for(let i=a;i>=b;i--) o.push(i); return o; }
+function pairs(n, step, desc){ const o=[]; for(let i=1;i+step<=n;i++){ if(desc) o.push(i+step,i); else o.push(i,i+step);} return o; }
+function groups(n, size, desc){ const o=[]; for(let i=1;i+size-1<=n;i++){ const g=[]; for(let k=0;k<size;k++) g.push(i+k); if(desc) g.reverse(); o.push(...g); } return o; }
+function altThirds(n, desc){ const o=[]; for(let i=1;i+2<=n;i++){ o.push(i,i+2);} return desc ? o.slice().reverse() : o; }
+function patternSteps(n, offs){ const o=[]; const m=Math.max(...offs); for(let i=1;i+m<=n;i++) offs.forEach(x=>o.push(i+x)); return o; }
+function pivot(n){ const o=[]; for(let i=1;i+4<=n;i++) o.push(i,i+2,i,i+3,i,i+4); return o; }
+function suspension(n){ const o=[]; for(let i=1;i+3<=n;i++) o.push(i,i+1,i,i+2,i,i+3); return o; }
 
-/* =====================================================================
-   UTILIDADES MUSICALES
-   ===================================================================== */
-const NOTE_NAMES_SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-const NOTE_NAMES_FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+const SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
 
-// MIDI helpers: C4 = 60
 function noteToMidi(name) {
-  // Acepta "F#3", "Bb4", "C6"
   const m = name.trim().match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
   if (!m) return null;
-  const letter = m[1].toUpperCase();
-  const acc = m[2];
-  const oct = parseInt(m[3], 10);
   const letterToSemi = {C:0, D:2, E:4, F:5, G:7, A:9, B:11};
-  let semi = letterToSemi[letter];
-  if (acc === "#") semi++;
-  if (acc === "b") semi--;
-  return (oct + 1) * 12 + semi;
+  let s = letterToSemi[m[1].toUpperCase()];
+  if (m[2] === "#") s++;
+  if (m[2] === "b") s--;
+  return (parseInt(m[3], 10) + 1) * 12 + s;
 }
 function midiToVexKey(midi, preferFlats) {
   const oct = Math.floor(midi / 12) - 1;
   const pc = ((midi % 12) + 12) % 12;
-  const name = preferFlats ? NOTE_NAMES_FLAT[pc] : NOTE_NAMES_SHARP[pc];
-  // VexFlow usa "c#/4", "bb/3"
-  const letter = name[0].toLowerCase();
-  const acc = name.slice(1); // "", "#", "b"
-  return letter + acc + "/" + oct;
+  const name = preferFlats ? FLAT[pc] : SHARP[pc];
+  return name[0].toLowerCase() + name.slice(1) + "/" + oct;
 }
-function rootToPc(root) {
-  return noteToMidi(root + "4") - 60; // número 0..11 (puede ser negativo si Cb)
-}
-
-// ¿Preferir bemoles según la tónica?
 function prefersFlats(root) {
-  // Tónicas que típicamente llevan bemoles
-  return ["F","Bb","Eb","Ab","Db","Gb","Cb","Dm","Gm","Cm","Fm","Bbm","Ebm","Abm"].some(r => r === root)
-      || root.includes("b");
+  return ["F","Bb","Eb","Ab","Db","Gb","Cb"].includes(root) || root.includes("b");
 }
-
-/* Genera la lista de midi notes para una escala + nº octavas desde la tónica
-   en la octava "baseOct". Incluye la octava final (para que 1 octava tenga 8 notas). */
-function scaleNotes(scaleName, rootName, octaves, baseOct = 4) {
+function scaleNotes(scaleName, rootName, octaves, baseOct) {
   const intervals = SCALES[scaleName];
   const rootMidi = noteToMidi(rootName + baseOct);
   const notes = [];
   for (let o = 0; o < octaves; o++) {
-    for (const iv of intervals) {
-      notes.push(rootMidi + iv + 12 * o);
-    }
+    for (const iv of intervals) notes.push(rootMidi + iv + 12 * o);
   }
-  notes.push(rootMidi + 12 * octaves); // octava final
+  notes.push(rootMidi + 12 * octaves);
   return notes;
 }
-
-/* Aplica el "rebote" dentro del rango [min,max] transponiendo por octavas
-   solo las notas que se salgan. Simple y predecible. */
 function bounceMidi(midi, minM, maxM) {
-  let m = midi;
-  let safety = 20;
+  let m = midi, safety = 20;
   while (safety-- > 0) {
     if (m > maxM) m -= 12;
     else if (m < minM) m += 12;
@@ -766,16 +446,8 @@ function bounceMidi(midi, minM, maxM) {
   return m;
 }
 
-/* =====================================================================
-   ESTADO
-   ===================================================================== */
-const state = {
-  blocks: [], // {id, root, scale, pattern, octaves, duration}
-};
+const state = { blocks: [] };
 
-/* =====================================================================
-   UI — poblar selects
-   ===================================================================== */
 function populateSelects() {
   const sc = document.getElementById('scale');
   Object.keys(SCALES).forEach(k => {
@@ -791,194 +463,183 @@ function populateSelects() {
   });
 }
 
-/* =====================================================================
-   Construcción del ejercicio (bloque → secuencia de notas)
-   ===================================================================== */
-function buildBlockNotes(block, minM, maxM) {
+function buildBlockNotes(block, minM, maxM, bbTrumpet) {
   const { root, scale, pattern, octaves } = block;
-  // Elegimos la octava base. Para trompeta, C4 suele funcionar bien.
-  // Si la tónica en oct 4 queda por debajo del min, subimos.
+  const shift = bbTrumpet ? 2 : 0;
+  const realMin = minM - shift;
+  const realMax = maxM - shift;
+
   let baseOct = 4;
   let rootMidi = noteToMidi(root + baseOct);
-  while (rootMidi < minM) { baseOct++; rootMidi = noteToMidi(root + baseOct); }
-  while (rootMidi + 12 * octaves > maxM + 12) { // deja margen
+  while (rootMidi < realMin) { baseOct++; rootMidi = noteToMidi(root + baseOct); }
+  while (rootMidi + 12 * octaves > realMax + 12 && baseOct > 2) {
     baseOct--;
     rootMidi = noteToMidi(root + baseOct);
-    if (baseOct < 2) break;
   }
   const midiScale = scaleNotes(scale, root, octaves, baseOct);
   const n = midiScale.length;
   const seq = PATTERNS[pattern](n);
-  // Convertimos índices 1-based a MIDI con rebote
-  const out = seq.map(idx => bounceMidi(midiScale[idx - 1], minM, maxM));
-  return out;
+  const real = seq.map(idx => bounceMidi(midiScale[idx - 1], realMin, realMax));
+  return real.map(m => m + shift);
 }
 
-/* =====================================================================
-   Render de la partitura con VexFlow
-   ===================================================================== */
-const VF = window.Vex ? window.Vex.Flow : null;
+function transposedRootName(root) {
+  const midi = noteToMidi(root + '4');
+  const newMidi = midi + 2;
+  const pc = ((newMidi % 12) + 12) % 12;
+  const useFlat = prefersFlats(root);
+  return (useFlat ? FLAT : SHARP)[pc];
+}
 
-function renderScore() {
-  const mount = document.getElementById('score');
-  mount.innerHTML = '';
+const VF = () => window.Vex && window.Vex.Flow;
 
-  // Parámetros globales
-  const title = document.getElementById('title').value || 'Rutina del día';
-  const tempo = parseInt(document.getElementById('tempo').value) || 80;
+function durationTicks(d) {
+  if (d === 'q') return 4;
+  if (d === '8') return 2;
+  if (d === '16') return 1;
+  return 2;
+}
+
+function buildAllNotesAndMeasures() {
   const timesig = document.getElementById('timesig').value;
-  const rangeMin = noteToMidi(document.getElementById('rangeMin').value) ?? noteToMidi('F#3');
-  const rangeMax = noteToMidi(document.getElementById('rangeMax').value) ?? noteToMidi('C6');
-  const useKeySig = document.getElementById('useKeySig').checked;
-
-  document.getElementById('scoreTitle').textContent = title;
-  document.getElementById('scoreTempo').textContent = '♩ = ' + tempo;
-
-  if (state.blocks.length === 0) {
-    mount.innerHTML = '<p style="text-align:center;font-style:italic;color:#6a5a44;padding:40px 0;">Añade bloques para generar la partitura</p>';
-    return;
-  }
+  const rangeMin = noteToMidi(document.getElementById('rangeMin').value) || noteToMidi('F#3');
+  const rangeMax = noteToMidi(document.getElementById('rangeMax').value) || noteToMidi('C6');
+  const bbTrumpet = document.getElementById('bbTrumpet').checked;
 
   const [beatsPerMeasure, beatValue] = timesig.split('/').map(Number);
-  // Duración del beat en "unidades de 16" (semicorchea)
-  const sixteenthsPerBeat = 16 / beatValue;
-  const sixteenthsPerMeasure = beatsPerMeasure * sixteenthsPerBeat;
+  const sixteenthsPerMeasure = beatsPerMeasure * (16 / beatValue);
 
-  // Generar todas las notas con su duración
-  const allNotes = []; // {midi, dur, blockIndex, preferFlats, keyRoot}
+  const allNotes = [];
   state.blocks.forEach((b, bi) => {
-    const midis = buildBlockNotes(b, rangeMin, rangeMax);
-    const dur = b.duration; // "8", "16", "8t"
-    midis.forEach(m => allNotes.push({
-      midi: m, dur, blockIndex: bi,
-      preferFlats: prefersFlats(b.root),
-      keyRoot: b.root,
-      scaleName: b.scale,
-    }));
+    const midis = buildBlockNotes(b, rangeMin, rangeMax, bbTrumpet);
+    const writtenRoot = bbTrumpet ? transposedRootName(b.root) : b.root;
+    const preferFlats = prefersFlats(writtenRoot);
+    midis.forEach(m => allNotes.push({ midi: m, dur: b.duration, preferFlats, blockIndex: bi }));
   });
 
-  // Agrupar en compases
   const measures = [];
   let current = { notes: [], filled: 0 };
   for (const n of allNotes) {
-    let beats16;
-    if (n.dur === '16') beats16 = 1;
-    else if (n.dur === '8') beats16 = 2;
-    else if (n.dur === '8t') beats16 = 2/3; // tresillo de corcheas: 3 en un beat (4/16)
-    else beats16 = 1;
-    // Para simplificar, si es tresillo sumamos por grupos
-    if (current.filled + beats16 > sixteenthsPerMeasure + 0.001) {
+    const t = durationTicks(n.dur);
+    if (current.filled + t > sixteenthsPerMeasure + 0.001) {
       measures.push(current);
       current = { notes: [], filled: 0 };
     }
     current.notes.push(n);
-    current.filled += beats16;
+    current.filled += t;
   }
   if (current.notes.length) {
-    // Rellenar con silencios si falta
+    const rem = sixteenthsPerMeasure - current.filled;
+    if (rem > 0.001) current.padding = rem;
     measures.push(current);
   }
 
-  // Renderizar con VexFlow — múltiples líneas
-  const containerWidth = mount.clientWidth || 900;
-  const measuresPerLine = Math.max(2, Math.floor(containerWidth / 220));
-  const lineHeight = 130;
-  const totalLines = Math.ceil(measures.length / measuresPerLine);
-
-  const renderer = new VF.Renderer(mount, VF.Renderer.Backends.SVG);
-  renderer.resize(containerWidth, totalLines * lineHeight + 40);
-  const ctx = renderer.getContext();
-  ctx.setFont('Cormorant Garamond', 12);
-
-  for (let line = 0; line < totalLines; line++) {
-    const lineMeasures = measures.slice(line * measuresPerLine, (line + 1) * measuresPerLine);
-    const measureWidth = Math.floor((containerWidth - 20) / lineMeasures.length);
-    let x = 10;
-    const y = line * lineHeight + 10;
-
-    lineMeasures.forEach((measure, mi) => {
-      const isFirst = (mi === 0);
-      const stave = new VF.Stave(x, y, measureWidth);
-      if (isFirst) {
-        stave.addClef('treble');
-        if (line === 0) {
-          if (useKeySig) {
-            // Armadura según la tónica del primer bloque
-            const firstRoot = state.blocks[0].root;
-            try { stave.addKeySignature(firstRoot.replace('b','b')); } catch(e) {}
-          }
-          stave.addTimeSignature(timesig);
-        }
-      }
-      stave.setContext(ctx).draw();
-
-      // Construir vexNotes
-      const vexNotes = [];
-      const tupletGroups = []; // índices de notas que forman un tresillo
-      let tripletBuffer = [];
-
-      measure.notes.forEach((n) => {
-        const preferFlats = n.preferFlats;
-        const key = midiToVexKey(n.midi, preferFlats);
-        const durationCode = n.dur === '16' ? '16' : '8';
-        const sn = new VF.StaveNote({
-          keys: [key],
-          duration: durationCode,
-          clef: 'treble',
-          auto_stem: true,
-        });
-        // Accidental explícito
-        const accMatch = key.match(/[a-g]([#b]+)?/);
-        const accStr = accMatch && accMatch[1];
-        if (accStr && !useKeySig) {
-          sn.addModifier(new VF.Accidental(accStr));
-        } else if (accStr && useKeySig) {
-          // Aun con armadura, añadimos accidental si no pertenece a la escala mayor de la tónica
-          sn.addModifier(new VF.Accidental(accStr));
-        }
-        vexNotes.push(sn);
-        if (n.dur === '8t') {
-          tripletBuffer.push(sn);
-          if (tripletBuffer.length === 3) {
-            tupletGroups.push(tripletBuffer);
-            tripletBuffer = [];
-          }
-        } else {
-          tripletBuffer = [];
-        }
-      });
-
-      // Voz
-      const voice = new VF.Voice({
-        num_beats: beatsPerMeasure,
-        beat_value: beatValue,
-      }).setMode(VF.Voice.Mode.SOFT);
-      voice.addTickables(vexNotes);
-
-      try {
-        new VF.Formatter().joinVoices([voice]).format([voice], measureWidth - 40);
-      } catch(e) {
-        new VF.Formatter().joinVoices([voice]).formatToStave([voice], stave);
-      }
-
-      // Beams automáticos
-      const beams = VF.Beam.generateBeams(vexNotes);
-
-      // Tuplets
-      const tuplets = tupletGroups.map(g => new VF.Tuplet(g));
-
-      voice.draw(ctx, stave);
-      beams.forEach(b => b.setContext(ctx).draw());
-      tuplets.forEach(t => t.setContext(ctx).draw());
-
-      x += measureWidth;
-    });
-  }
+  return { measures, beatsPerMeasure, beatValue, sixteenthsPerMeasure };
 }
 
-/* =====================================================================
-   Manejo de bloques en UI
-   ===================================================================== */
+function renderMeasuresToContext(ctx, measures, opts) {
+  const { startX, startY, availableWidth, beatsPerMeasure, beatValue,
+          includeClef, includeKeySig, includeTimeSig, keySigRoot, timesig } = opts;
+
+  const clefExtra = (includeClef ? 50 : 0) + (includeKeySig ? 30 : 0) + (includeTimeSig ? 30 : 0);
+  // Repartir ancho
+  const totalNotes = measures.reduce((a,m) => a + m.notes.length, 0) || 1;
+  const availForMeasures = availableWidth - clefExtra;
+
+  let x = startX;
+  measures.forEach((measure, mi) => {
+    const proportion = (measure.notes.length / totalNotes);
+    const measureWidth = Math.max(90, proportion * availForMeasures);
+    const extra = (mi === 0) ? clefExtra : 0;
+
+    const stave = new VF.Stave(x, startY, measureWidth + extra);
+    if (mi === 0) {
+      if (includeClef) stave.addClef('treble');
+      if (includeKeySig && keySigRoot) {
+        try { stave.addKeySignature(keySigRoot); } catch(e) {}
+      }
+      if (includeTimeSig) stave.addTimeSignature(timesig);
+    }
+    stave.setContext(ctx).draw();
+
+    const vexNotes = measure.notes.map(n => {
+      const key = midiToVexKey(n.midi, n.preferFlats);
+      const sn = new VF.StaveNote({ keys:[key], duration:n.dur, clef:'treble', auto_stem:true });
+      const accMatch = key.match(/[a-g]([#b]+)/);
+      if (accMatch) sn.addModifier(new VF.Accidental(accMatch[1]));
+      return sn;
+    });
+    if (measure.padding) {
+      let rem = measure.padding;
+      while (rem >= 4) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'qr', clef:'treble'})); rem -= 4; }
+      while (rem >= 2) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'8r', clef:'treble'})); rem -= 2; }
+      while (rem >= 1) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'16r', clef:'treble'})); rem -= 1; }
+    }
+
+    const voice = new VF.Voice({ num_beats: beatsPerMeasure, beat_value: beatValue }).setMode(VF.Voice.Mode.SOFT);
+    voice.addTickables(vexNotes);
+    try {
+      new VF.Formatter().joinVoices([voice]).format([voice], measureWidth + extra - 30);
+    } catch(e) {}
+
+    const beams = VF.Beam.generateBeams(vexNotes);
+    voice.draw(ctx, stave);
+    beams.forEach(b => b.setContext(ctx).draw());
+
+    x += measureWidth + extra;
+  });
+}
+
+function renderScore() {
+  const mount = document.getElementById('score');
+  mount.innerHTML = '';
+  if (!VF()) return;
+
+  const title = document.getElementById('title').value || 'Rutina';
+  const tempo = parseInt(document.getElementById('tempo').value) || 80;
+  const timesig = document.getElementById('timesig').value;
+  const useKeySig = document.getElementById('useKeySig').checked;
+  const bbTrumpet = document.getElementById('bbTrumpet').checked;
+
+  document.getElementById('scoreTitle').textContent = title + (bbTrumpet ? ' · Trompeta Sib' : '');
+  document.getElementById('scoreTempo').textContent = '♩ = ' + tempo;
+
+  if (state.blocks.length === 0) {
+    mount.innerHTML = '<p style="text-align:center;color:#888;padding:30px 0;font-size:14px;">Añade bloques para generar la partitura</p>';
+    return;
+  }
+
+  const { measures, beatsPerMeasure, beatValue } = buildAllNotesAndMeasures();
+
+  // Ancho generoso por nota para móvil - scroll horizontal
+  const widthPerNote = 30;
+  const clefExtra = 110; // clef + keysig + timesig
+
+  let totalWidth = clefExtra;
+  measures.forEach(m => {
+    totalWidth += Math.max(100, m.notes.length * widthPerNote + 20);
+  });
+  totalWidth = Math.max(totalWidth, 400);
+
+  const height = 140;
+  mount.style.width = totalWidth + 'px';
+
+  const renderer = new VF.Renderer(mount, VF.Renderer.Backends.SVG);
+  renderer.resize(totalWidth, height);
+  const ctx = renderer.getContext();
+
+  const keySigRoot = useKeySig && state.blocks.length
+    ? (bbTrumpet ? transposedRootName(state.blocks[0].root) : state.blocks[0].root)
+    : null;
+
+  renderMeasuresToContext(ctx, measures, {
+    startX: 10, startY: 10, availableWidth: totalWidth - 20,
+    beatsPerMeasure, beatValue,
+    includeClef: true, includeKeySig: !!keySigRoot, includeTimeSig: true,
+    keySigRoot, timesig,
+  });
+}
+
 function renderBlocks() {
   const container = document.getElementById('blocks');
   const empty = document.getElementById('emptyState');
@@ -987,68 +648,55 @@ function renderBlocks() {
   container.innerHTML = '';
   if (state.blocks.length === 0) {
     container.appendChild(empty);
-    count.textContent = 'Sin bloques';
+    count.textContent = '';
     return;
   }
-  count.textContent = state.blocks.length + ' bloque' + (state.blocks.length>1?'s':'');
+  count.textContent = '(' + state.blocks.length + ')';
 
   state.blocks.forEach((b, i) => {
     const div = document.createElement('div');
     div.className = 'block';
-    const durLabel = b.duration === '8' ? 'Corcheas' : b.duration === '8t' ? 'Tresillos' : 'Semicorcheas';
-    div.innerHTML = `
-      <div class="ordinal">${i+1}</div>
-      <div class="desc">
-        <div class="main">${b.root} ${b.scale}</div>
-        <div class="meta">${b.pattern} · ${b.octaves} oct · ${durLabel}</div>
-      </div>
-      <div class="actions">
-        <button class="ghost small" data-action="up" data-i="${i}">▲</button>
-        <button class="ghost small" data-action="down" data-i="${i}">▼</button>
-        <button class="danger small" data-action="del" data-i="${i}">✕</button>
-      </div>
-    `;
+    const durLabel = b.duration === 'q' ? '♩ negras' : b.duration === '8' ? '♪ corcheas' : '♬ semicorcheas';
+    div.innerHTML = '<div class="num">' + (i+1) + '</div>' +
+      '<div class="desc"><div class="main">' + b.root + ' · ' + b.scale + '</div>' +
+      '<div class="meta">' + b.pattern + ' · ' + b.octaves + ' oct · ' + durLabel + '</div></div>' +
+      '<div class="actions">' +
+      '<button class="ghost small" data-a="up" data-i="' + i + '">▲</button>' +
+      '<button class="ghost small" data-a="dn" data-i="' + i + '">▼</button>' +
+      '<button class="ghost small" data-a="del" data-i="' + i + '">✕</button>' +
+      '</div>';
     container.appendChild(div);
   });
 
   container.querySelectorAll('button').forEach(btn => {
     btn.addEventListener('click', () => {
       const i = parseInt(btn.dataset.i, 10);
-      const a = btn.dataset.action;
+      const a = btn.dataset.a;
       if (a === 'del') state.blocks.splice(i, 1);
-      if (a === 'up' && i > 0) {
-        [state.blocks[i-1], state.blocks[i]] = [state.blocks[i], state.blocks[i-1]];
-      }
-      if (a === 'down' && i < state.blocks.length - 1) {
-        [state.blocks[i+1], state.blocks[i]] = [state.blocks[i], state.blocks[i+1]];
-      }
+      if (a === 'up' && i > 0) [state.blocks[i-1], state.blocks[i]] = [state.blocks[i], state.blocks[i-1]];
+      if (a === 'dn' && i < state.blocks.length - 1) [state.blocks[i+1], state.blocks[i]] = [state.blocks[i], state.blocks[i+1]];
       renderBlocks();
       renderScore();
     });
   });
 }
 
-/* =====================================================================
-   Eventos
-   ===================================================================== */
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._to);
-  t._to = setTimeout(() => t.classList.remove('show'), 2200);
+  t._to = setTimeout(() => t.classList.remove('show'), 2000);
 }
 
 document.getElementById('addBlock').addEventListener('click', () => {
-  const block = {
-    id: Date.now(),
+  state.blocks.push({
     root: document.getElementById('root').value,
     scale: document.getElementById('scale').value,
     pattern: document.getElementById('pattern').value,
     octaves: parseInt(document.getElementById('octaves').value, 10),
     duration: document.getElementById('duration').value,
-  };
-  state.blocks.push(block);
+  });
   renderBlocks();
   renderScore();
 });
@@ -1061,39 +709,32 @@ document.getElementById('clearBlocks').addEventListener('click', () => {
   }
 });
 
-['title','tempo','timesig','rangeMin','rangeMax','useKeySig'].forEach(id => {
+['title','tempo','timesig','rangeMin','rangeMax','useKeySig','bbTrumpet'].forEach(id => {
   document.getElementById(id).addEventListener('input', renderScore);
   document.getElementById(id).addEventListener('change', renderScore);
 });
 
-// Guardar / Cargar en localStorage
-document.getElementById('savePreset').addEventListener('click', () => {
-  const name = prompt('Nombre de la rutina:');
-  if (!name) return;
-  const presets = JSON.parse(localStorage.getItem('scalePresets') || '{}');
-  presets[name] = {
+const nightBtn = document.getElementById('nightToggle');
+function applyNight(on) {
+  document.body.classList.toggle('night', on);
+  nightBtn.textContent = on ? 'Modo día' : 'Modo noche';
+  localStorage.setItem('nightMode', on ? '1' : '0');
+}
+nightBtn.addEventListener('click', () => applyNight(!document.body.classList.contains('night')));
+applyNight(localStorage.getItem('nightMode') === '1');
+
+function gatherState() {
+  return {
     title: document.getElementById('title').value,
     tempo: document.getElementById('tempo').value,
     timesig: document.getElementById('timesig').value,
     rangeMin: document.getElementById('rangeMin').value,
     rangeMax: document.getElementById('rangeMax').value,
     useKeySig: document.getElementById('useKeySig').checked,
+    bbTrumpet: document.getElementById('bbTrumpet').checked,
     blocks: state.blocks,
   };
-  localStorage.setItem('scalePresets', JSON.stringify(presets));
-  toast('Guardada: ' + name);
-});
-
-document.getElementById('loadPreset').addEventListener('click', () => {
-  const presets = JSON.parse(localStorage.getItem('scalePresets') || '{}');
-  const keys = Object.keys(presets);
-  if (!keys.length) { toast('No hay rutinas guardadas'); return; }
-  const name = prompt('Rutinas:\n' + keys.map((k,i)=>(i+1)+'. '+k).join('\n') + '\n\nEscribe el nombre:');
-  if (!name || !presets[name]) return;
-  applyPreset(presets[name]);
-  toast('Cargada: ' + name);
-});
-
+}
 function applyPreset(p) {
   document.getElementById('title').value = p.title || '';
   document.getElementById('tempo').value = p.tempo || 80;
@@ -1101,28 +742,37 @@ function applyPreset(p) {
   document.getElementById('rangeMin').value = p.rangeMin || 'F#3';
   document.getElementById('rangeMax').value = p.rangeMax || 'C6';
   document.getElementById('useKeySig').checked = !!p.useKeySig;
+  document.getElementById('bbTrumpet').checked = p.bbTrumpet !== false;
   state.blocks = p.blocks || [];
   renderBlocks();
   renderScore();
 }
 
+document.getElementById('savePreset').addEventListener('click', () => {
+  const name = prompt('Nombre de la rutina:');
+  if (!name) return;
+  const presets = JSON.parse(localStorage.getItem('scalePresets') || '{}');
+  presets[name] = gatherState();
+  localStorage.setItem('scalePresets', JSON.stringify(presets));
+  toast('Guardada: ' + name);
+});
+document.getElementById('loadPreset').addEventListener('click', () => {
+  const presets = JSON.parse(localStorage.getItem('scalePresets') || '{}');
+  const keys = Object.keys(presets);
+  if (!keys.length) { toast('No hay rutinas guardadas'); return; }
+  const name = prompt('Rutinas:\n' + keys.map((k,i)=>(i+1)+'. '+k).join('\n') + '\n\nEscribe el nombre:');
+  if (!name || !presets[name]) return;
+  applyPreset(presets[name]);
+  toast('Cargada');
+});
 document.getElementById('exportJson').addEventListener('click', () => {
-  const data = {
-    title: document.getElementById('title').value,
-    tempo: document.getElementById('tempo').value,
-    timesig: document.getElementById('timesig').value,
-    rangeMin: document.getElementById('rangeMin').value,
-    rangeMax: document.getElementById('rangeMax').value,
-    useKeySig: document.getElementById('useKeySig').checked,
-    blocks: state.blocks,
-  };
+  const data = gatherState();
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = (data.title || 'rutina').replace(/\s+/g,'_') + '.json';
   a.click();
 });
-
 document.getElementById('importBtn').addEventListener('click', () => {
   document.getElementById('importFile').click();
 });
@@ -1131,56 +781,179 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   if (!f) return;
   const fr = new FileReader();
   fr.onload = () => {
-    try {
-      applyPreset(JSON.parse(fr.result));
-      toast('Importado');
-    } catch(err) {
-      toast('Error al importar');
-    }
+    try { applyPreset(JSON.parse(fr.result)); toast('Importado'); }
+    catch(err) { toast('Error al importar'); }
   };
   fr.readAsText(f);
 });
 
-// Exportar PDF A4
-document.getElementById('exportPdf').addEventListener('click', () => {
-  const el = document.getElementById('scoreWrap');
-  const title = (document.getElementById('title').value || 'rutina').replace(/\s+/g,'_');
-  const opt = {
-    margin: [12, 12, 12, 12],
-    filename: title + '.pdf',
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, backgroundColor: '#fffdf5' },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-  };
-  html2pdf().set(opt).from(el).save();
+/* ============== EXPORTAR PDF ============== */
+document.getElementById('exportPdf').addEventListener('click', async () => {
+  if (!state.blocks.length) { toast('Añade bloques primero'); return; }
+  if (!VF()) { toast('Cargando librería...'); return; }
+  if (!window.jspdf) { toast('jsPDF no cargado'); return; }
+
+  toast('Generando PDF...');
+  try {
+    await generatePdf();
+  } catch (err) {
+    console.error(err);
+    toast('Error: ' + err.message);
+  }
 });
 
-/* =====================================================================
-   Init
-   ===================================================================== */
+async function generatePdf() {
+  // A4 en px @96dpi: 794 x 1123
+  const pageW = 794, pageH = 1123;
+  const marginX = 40, marginTop = 80, marginBottom = 50;
+  const usableW = pageW - marginX * 2;
+
+  const title = document.getElementById('title').value || 'Rutina';
+  const tempo = parseInt(document.getElementById('tempo').value) || 80;
+  const timesig = document.getElementById('timesig').value;
+  const useKeySig = document.getElementById('useKeySig').checked;
+  const bbTrumpet = document.getElementById('bbTrumpet').checked;
+
+  const { measures, beatsPerMeasure, beatValue } = buildAllNotesAndMeasures();
+  if (!measures.length) throw new Error('sin compases');
+
+  // Agrupar compases en sistemas que quepan en usableW
+  const notesWidth = 26;
+  const firstClefExtra = 110;
+  const systems = [];
+  let cur = { measures: [], width: firstClefExtra };
+  measures.forEach((m) => {
+    const mw = Math.max(100, m.notes.length * notesWidth + 20);
+    if (cur.width + mw > usableW && cur.measures.length) {
+      systems.push(cur);
+      cur = { measures: [], width: 0 };
+    }
+    cur.measures.push(m);
+    cur.width += mw;
+  });
+  if (cur.measures.length) systems.push(cur);
+
+  const systemHeight = 100;
+  const systemGap = 30;
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
+
+  // Título
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(18);
+  pdf.text(title + (bbTrumpet ? ' · Trompeta Sib' : ''), pageW / 2, 40, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(12);
+  pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 60, { align: 'center' });
+
+  let y = marginTop;
+  const keySigRoot = useKeySig && state.blocks.length
+    ? (bbTrumpet ? transposedRootName(state.blocks[0].root) : state.blocks[0].root)
+    : null;
+
+  for (let si = 0; si < systems.length; si++) {
+    if (y + systemHeight > pageH - marginBottom) {
+      pdf.addPage();
+      y = marginTop - 30;
+    }
+
+    // Renderizar cada sistema en un div temporal para extraer SVG
+    const temp = document.createElement('div');
+    temp.style.position = 'absolute';
+    temp.style.left = '-99999px';
+    temp.style.top = '0';
+    temp.style.background = '#ffffff';
+    document.body.appendChild(temp);
+
+    const renderer = new VF.Renderer(temp, VF.Renderer.Backends.SVG);
+    renderer.resize(usableW, systemHeight);
+    const ctx = renderer.getContext();
+
+    renderMeasuresToContext(ctx, systems[si].measures, {
+      startX: 0, startY: 5, availableWidth: usableW,
+      beatsPerMeasure, beatValue,
+      includeClef: true,
+      includeKeySig: si === 0 && !!keySigRoot,
+      includeTimeSig: si === 0,
+      keySigRoot: si === 0 ? keySigRoot : null,
+      timesig,
+    });
+
+    const svgEl = temp.querySelector('svg');
+    if (!svgEl) { document.body.removeChild(temp); throw new Error('no SVG'); }
+
+    // Forzar attrs
+    svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svgEl.setAttribute('width', usableW);
+    svgEl.setAttribute('height', systemHeight);
+
+    const svgString = new XMLSerializer().serializeToString(svgEl);
+    const imgData = await svgToPngDataUrl(svgString, usableW, systemHeight);
+
+    pdf.addImage(imgData, 'PNG', marginX, y, usableW, systemHeight);
+    y += systemHeight + systemGap;
+
+    document.body.removeChild(temp);
+  }
+
+  // Pie de página
+  const total = pdf.internal.getNumberOfPages();
+  for (let p = 1; p <= total; p++) {
+    pdf.setPage(p);
+    pdf.setFontSize(9);
+    pdf.setTextColor(120);
+    pdf.text(p + ' / ' + total, pageW / 2, pageH - 20, { align: 'center' });
+  }
+
+  pdf.save((title || 'rutina').replace(/\s+/g,'_') + '.pdf');
+  toast('PDF listo');
+}
+
+function svgToPngDataUrl(svgString, w, h) {
+  return new Promise((resolve, reject) => {
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const scale = 2;
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const cctx = canvas.getContext('2d');
+        cctx.fillStyle = '#ffffff';
+        cctx.fillRect(0, 0, canvas.width, canvas.height);
+        cctx.scale(scale, scale);
+        cctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/png'));
+      } catch(e) { reject(e); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Fallo al convertir SVG')); };
+    img.src = url;
+  });
+}
+
+/* ============== INIT ============== */
 populateSelects();
 renderBlocks();
 
-// Ejemplo inicial: un par de bloques para arrancar con algo visible
 state.blocks.push(
-  { id:1, root:'C', scale:'Mayor (Jónico)', pattern:'Subir y bajar', octaves:2, duration:'16' },
-  { id:2, root:'D', scale:'Dórico',         pattern:'Terceras ↑ (1-3, 2-4, ...)', octaves:2, duration:'16' },
+  { root:'C', scale:'Mayor (Jónico)', pattern:'Subir y bajar', octaves:2, duration:'8' },
 );
 renderBlocks();
-// Esperar a que VexFlow cargue (CDN)
+
 const waitVex = setInterval(() => {
-  if (window.Vex && window.Vex.Flow) {
-    clearInterval(waitVex);
-    renderScore();
-  }
+  if (VF()) { clearInterval(waitVex); renderScore(); }
 }, 50);
 
-// Re-render al cambiar tamaño de ventana
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(renderScore, 200);
 });
 </script>
+
 </body>
 </html>
