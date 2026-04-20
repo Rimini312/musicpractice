@@ -170,6 +170,7 @@
     border: 1px solid var(--rule);
     border-radius: 4px;
     padding: 8px;
+    min-height: 160px;
   }
   #score { min-width: 100%; }
   #score svg { display: block; }
@@ -202,8 +203,24 @@
     font-size: 13px;
     transition: transform 0.25s;
     z-index: 100;
+    max-width: 90%;
+    text-align: center;
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
+
+  .error-box {
+    background: #ffe0e0;
+    color: #800;
+    border: 1px solid #c66;
+    padding: 10px;
+    margin: 8px 0;
+    border-radius: 4px;
+    font-size: 13px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    display: none;
+  }
+  .error-box.show { display: block; }
 
   @media (max-width: 500px) {
     .row { grid-template-columns: 1fr 1fr; }
@@ -224,7 +241,7 @@
     <h2>Nuevo bloque</h2>
     <div class="row">
       <div class="field">
-        <label>Tónica (sonido real)</label>
+        <label>Tónica</label>
         <select id="root">
           <option>C</option><option>C#</option><option>Db</option>
           <option>D</option><option>D#</option><option>Eb</option>
@@ -280,23 +297,17 @@
         </select>
       </div>
       <div class="field">
-        <label>Nota min (escrita)</label>
+        <label>Nota mín</label>
         <input type="text" id="rangeMin" value="F#3" />
       </div>
       <div class="field">
-        <label>Nota max (escrita)</label>
+        <label>Nota máx</label>
         <input type="text" id="rangeMax" value="C6" />
       </div>
     </div>
-    <div class="row">
-      <div class="checkbox-field">
-        <input type="checkbox" id="useKeySig" />
-        <label for="useKeySig">Usar armadura</label>
-      </div>
-      <div class="checkbox-field">
-        <input type="checkbox" id="bbTrumpet" checked />
-        <label for="bbTrumpet">Trompeta en Sib (transportar)</label>
-      </div>
+    <div class="checkbox-field">
+      <input type="checkbox" id="useKeySig" />
+      <label for="useKeySig">Usar armadura</label>
     </div>
   </div>
 
@@ -313,6 +324,7 @@
   <div class="panel">
     <div class="score-title" id="scoreTitle">Rutina del día</div>
     <div class="score-tempo" id="scoreTempo">♩ = 80</div>
+    <div class="error-box" id="errorBox"></div>
     <div class="score-scroll" id="scoreScroll">
       <div id="score"></div>
     </div>
@@ -337,6 +349,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
+/* ============== ESCALAS ============== */
 const SCALES = {
   "Mayor (Jónico)":        [0,2,4,5,7,9,11],
   "Menor natural (Eólico)":[0,2,3,5,7,8,10],
@@ -371,6 +384,7 @@ const SCALES = {
   "Iwato":                    [0,1,5,6,10],
 };
 
+/* ============== PATRONES ============== */
 const PATTERNS = {
   "Subir": (n) => range(1, n),
   "Bajar": (n) => range(n, 1),
@@ -405,11 +419,13 @@ function patternSteps(n, offs){ const o=[]; const m=Math.max(...offs); for(let i
 function pivot(n){ const o=[]; for(let i=1;i+4<=n;i++) o.push(i,i+2,i,i+3,i,i+4); return o; }
 function suspension(n){ const o=[]; for(let i=1;i+3<=n;i++) o.push(i,i+1,i,i+2,i,i+3); return o; }
 
+/* ============== MIDI / NOTAS ============== */
 const SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
 
 function noteToMidi(name) {
-  const m = name.trim().match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
+  if (!name) return null;
+  const m = String(name).trim().match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
   if (!m) return null;
   const letterToSemi = {C:0, D:2, E:4, F:5, G:7, A:9, B:11};
   let s = letterToSemi[m[1].toUpperCase()];
@@ -417,18 +433,23 @@ function noteToMidi(name) {
   if (m[2] === "b") s--;
   return (parseInt(m[3], 10) + 1) * 12 + s;
 }
+
 function midiToVexKey(midi, preferFlats) {
   const oct = Math.floor(midi / 12) - 1;
   const pc = ((midi % 12) + 12) % 12;
   const name = preferFlats ? FLAT[pc] : SHARP[pc];
   return name[0].toLowerCase() + name.slice(1) + "/" + oct;
 }
+
 function prefersFlats(root) {
-  return ["F","Bb","Eb","Ab","Db","Gb","Cb"].includes(root) || root.includes("b");
+  return ["F","Bb","Eb","Ab","Db","Gb","Cb"].includes(root) || String(root).includes("b");
 }
+
 function scaleNotes(scaleName, rootName, octaves, baseOct) {
   const intervals = SCALES[scaleName];
+  if (!intervals) throw new Error("Escala no encontrada: " + scaleName);
   const rootMidi = noteToMidi(rootName + baseOct);
+  if (rootMidi == null) throw new Error("Tónica inválida: " + rootName);
   const notes = [];
   for (let o = 0; o < octaves; o++) {
     for (const iv of intervals) notes.push(rootMidi + iv + 12 * o);
@@ -436,6 +457,7 @@ function scaleNotes(scaleName, rootName, octaves, baseOct) {
   notes.push(rootMidi + 12 * octaves);
   return notes;
 }
+
 function bounceMidi(midi, minM, maxM) {
   let m = midi, safety = 20;
   while (safety-- > 0) {
@@ -446,6 +468,7 @@ function bounceMidi(midi, minM, maxM) {
   return m;
 }
 
+/* ============== ESTADO ============== */
 const state = { blocks: [] };
 
 function populateSelects() {
@@ -463,36 +486,28 @@ function populateSelects() {
   });
 }
 
-function buildBlockNotes(block, minM, maxM, bbTrumpet) {
+function buildBlockNotes(block, minM, maxM) {
   const { root, scale, pattern, octaves } = block;
-  const shift = bbTrumpet ? 2 : 0;
-  const realMin = minM - shift;
-  const realMax = maxM - shift;
-
   let baseOct = 4;
   let rootMidi = noteToMidi(root + baseOct);
-  while (rootMidi < realMin) { baseOct++; rootMidi = noteToMidi(root + baseOct); }
-  while (rootMidi + 12 * octaves > realMax + 12 && baseOct > 2) {
+  while (rootMidi < minM && baseOct < 7) { baseOct++; rootMidi = noteToMidi(root + baseOct); }
+  while (rootMidi + 12 * octaves > maxM + 12 && baseOct > 2) {
     baseOct--;
     rootMidi = noteToMidi(root + baseOct);
   }
   const midiScale = scaleNotes(scale, root, octaves, baseOct);
   const n = midiScale.length;
-  const seq = PATTERNS[pattern](n);
-  const real = seq.map(idx => bounceMidi(midiScale[idx - 1], realMin, realMax));
-  return real.map(m => m + shift);
+  const patternFn = PATTERNS[pattern];
+  if (!patternFn) throw new Error("Patrón no encontrado: " + pattern);
+  const seq = patternFn(n);
+  return seq.map(idx => {
+    const m = midiScale[idx - 1];
+    if (m == null) return null;
+    return bounceMidi(m, minM, maxM);
+  }).filter(x => x != null);
 }
 
-function transposedRootName(root) {
-  const midi = noteToMidi(root + '4');
-  const newMidi = midi + 2;
-  const pc = ((newMidi % 12) + 12) % 12;
-  const useFlat = prefersFlats(root);
-  return (useFlat ? FLAT : SHARP)[pc];
-}
-
-const VF = () => window.Vex && window.Vex.Flow;
-
+/* ============== DURACIONES ============== */
 function durationTicks(d) {
   if (d === 'q') return 4;
   if (d === '8') return 2;
@@ -500,21 +515,19 @@ function durationTicks(d) {
   return 2;
 }
 
-function buildAllNotesAndMeasures() {
+function buildMeasures() {
   const timesig = document.getElementById('timesig').value;
   const rangeMin = noteToMidi(document.getElementById('rangeMin').value) || noteToMidi('F#3');
   const rangeMax = noteToMidi(document.getElementById('rangeMax').value) || noteToMidi('C6');
-  const bbTrumpet = document.getElementById('bbTrumpet').checked;
 
   const [beatsPerMeasure, beatValue] = timesig.split('/').map(Number);
   const sixteenthsPerMeasure = beatsPerMeasure * (16 / beatValue);
 
   const allNotes = [];
-  state.blocks.forEach((b, bi) => {
-    const midis = buildBlockNotes(b, rangeMin, rangeMax, bbTrumpet);
-    const writtenRoot = bbTrumpet ? transposedRootName(b.root) : b.root;
-    const preferFlats = prefersFlats(writtenRoot);
-    midis.forEach(m => allNotes.push({ midi: m, dur: b.duration, preferFlats, blockIndex: bi }));
+  state.blocks.forEach((b) => {
+    const midis = buildBlockNotes(b, rangeMin, rangeMax);
+    const preferFlats = prefersFlats(b.root);
+    midis.forEach(m => allNotes.push({ midi: m, dur: b.duration, preferFlats }));
   });
 
   const measures = [];
@@ -534,41 +547,65 @@ function buildAllNotesAndMeasures() {
     measures.push(current);
   }
 
-  return { measures, beatsPerMeasure, beatValue, sixteenthsPerMeasure };
+  return { measures, beatsPerMeasure, beatValue, sixteenthsPerMeasure, timesig };
 }
 
-function renderMeasuresToContext(ctx, measures, opts) {
-  const { startX, startY, availableWidth, beatsPerMeasure, beatValue,
-          includeClef, includeKeySig, includeTimeSig, keySigRoot, timesig } = opts;
+/* ============== RENDERIZADO VEXFLOW ============== */
+function getVF() {
+  if (window.Vex && window.Vex.Flow) return window.Vex.Flow;
+  if (window.VexFlow) return window.VexFlow; // por si cambia el namespace
+  return null;
+}
 
-  const clefExtra = (includeClef ? 50 : 0) + (includeKeySig ? 30 : 0) + (includeTimeSig ? 30 : 0);
-  // Repartir ancho
-  const totalNotes = measures.reduce((a,m) => a + m.notes.length, 0) || 1;
-  const availForMeasures = availableWidth - clefExtra;
+function drawMeasuresOnContext(VF, ctx, measures, opts) {
+  const {
+    startX, startY, totalWidth,
+    beatsPerMeasure, beatValue, timesig,
+    firstMeasureHasClef, firstMeasureHasKeySig, firstMeasureHasTimeSig,
+    keySigRoot,
+  } = opts;
+
+  // Calcular ancho de cada compás proporcional al número de notas
+  const notesInEach = measures.map(m => Math.max(1, m.notes.length));
+  const totalNotes = notesInEach.reduce((a,b) => a+b, 0);
+
+  const firstExtra = (firstMeasureHasClef ? 40 : 0)
+                   + (firstMeasureHasKeySig ? 30 : 0)
+                   + (firstMeasureHasTimeSig ? 30 : 0);
+  const availForNotes = Math.max(200, totalWidth - firstExtra - 20);
+  const widths = notesInEach.map(n => Math.max(90, Math.floor(availForNotes * (n / totalNotes))));
 
   let x = startX;
   measures.forEach((measure, mi) => {
-    const proportion = (measure.notes.length / totalNotes);
-    const measureWidth = Math.max(90, proportion * availForMeasures);
-    const extra = (mi === 0) ? clefExtra : 0;
+    const extra = (mi === 0) ? firstExtra : 0;
+    const mw = widths[mi] + extra;
 
-    const stave = new VF.Stave(x, startY, measureWidth + extra);
+    const stave = new VF.Stave(x, startY, mw);
     if (mi === 0) {
-      if (includeClef) stave.addClef('treble');
-      if (includeKeySig && keySigRoot) {
+      if (firstMeasureHasClef) stave.addClef('treble');
+      if (firstMeasureHasKeySig && keySigRoot) {
         try { stave.addKeySignature(keySigRoot); } catch(e) {}
       }
-      if (includeTimeSig) stave.addTimeSignature(timesig);
+      if (firstMeasureHasTimeSig) stave.addTimeSignature(timesig);
     }
     stave.setContext(ctx).draw();
 
-    const vexNotes = measure.notes.map(n => {
+    const vexNotes = [];
+    measure.notes.forEach(n => {
       const key = midiToVexKey(n.midi, n.preferFlats);
-      const sn = new VF.StaveNote({ keys:[key], duration:n.dur, clef:'treble', auto_stem:true });
-      const accMatch = key.match(/[a-g]([#b]+)/);
-      if (accMatch) sn.addModifier(new VF.Accidental(accMatch[1]));
-      return sn;
+      try {
+        const sn = new VF.StaveNote({ keys: [key], duration: n.dur, clef: 'treble', auto_stem: true });
+        const accMatch = key.match(/[a-g]([#b]+)/);
+        if (accMatch) {
+          sn.addModifier(new VF.Accidental(accMatch[1]), 0);
+        }
+        vexNotes.push(sn);
+      } catch(e) {
+        console.warn("Nota descartada:", key, e);
+      }
     });
+
+    // Silencios de relleno
     if (measure.padding) {
       let rem = measure.padding;
       while (rem >= 4) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'qr', clef:'treble'})); rem -= 4; }
@@ -576,32 +613,63 @@ function renderMeasuresToContext(ctx, measures, opts) {
       while (rem >= 1) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'16r', clef:'treble'})); rem -= 1; }
     }
 
-    const voice = new VF.Voice({ num_beats: beatsPerMeasure, beat_value: beatValue }).setMode(VF.Voice.Mode.SOFT);
-    voice.addTickables(vexNotes);
+    if (vexNotes.length === 0) {
+      x += mw;
+      return;
+    }
+
     try {
-      new VF.Formatter().joinVoices([voice]).format([voice], measureWidth + extra - 30);
-    } catch(e) {}
+      const voice = new VF.Voice({ num_beats: beatsPerMeasure, beat_value: beatValue });
+      voice.setMode(VF.Voice.Mode.SOFT);
+      voice.addTickables(vexNotes);
 
-    const beams = VF.Beam.generateBeams(vexNotes);
-    voice.draw(ctx, stave);
-    beams.forEach(b => b.setContext(ctx).draw());
+      const formatter = new VF.Formatter();
+      formatter.joinVoices([voice]);
+      formatter.format([voice], Math.max(50, mw - extra - 20));
 
-    x += measureWidth + extra;
+      // Beams solo sobre notas no-silencio
+      const nonRests = vexNotes.filter(n => {
+        try { return !n.isRest || !n.isRest(); } catch(e) { return true; }
+      });
+      let beams = [];
+      try { beams = VF.Beam.generateBeams(nonRests); } catch(e) { beams = []; }
+
+      voice.draw(ctx, stave);
+      beams.forEach(b => {
+        try { b.setContext(ctx).draw(); } catch(e) {}
+      });
+    } catch(e) {
+      console.error("Error renderizando compás", mi, e);
+    }
+
+    x += mw;
   });
 }
 
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.classList.add('show');
+}
+function hideError() {
+  document.getElementById('errorBox').classList.remove('show');
+}
+
 function renderScore() {
+  hideError();
   const mount = document.getElementById('score');
   mount.innerHTML = '';
-  if (!VF()) return;
+  mount.style.width = '';
+
+  const VF = getVF();
+  if (!VF) {
+    mount.innerHTML = '<p style="text-align:center;color:#888;padding:30px 0;">Cargando librería de notación...</p>';
+    return;
+  }
 
   const title = document.getElementById('title').value || 'Rutina';
   const tempo = parseInt(document.getElementById('tempo').value) || 80;
-  const timesig = document.getElementById('timesig').value;
-  const useKeySig = document.getElementById('useKeySig').checked;
-  const bbTrumpet = document.getElementById('bbTrumpet').checked;
-
-  document.getElementById('scoreTitle').textContent = title + (bbTrumpet ? ' · Trompeta Sib' : '');
+  document.getElementById('scoreTitle').textContent = title;
   document.getElementById('scoreTempo').textContent = '♩ = ' + tempo;
 
   if (state.blocks.length === 0) {
@@ -609,37 +677,45 @@ function renderScore() {
     return;
   }
 
-  const { measures, beatsPerMeasure, beatValue } = buildAllNotesAndMeasures();
+  try {
+    const { measures, beatsPerMeasure, beatValue, timesig } = buildMeasures();
+    if (!measures.length) {
+      mount.innerHTML = '<p style="text-align:center;color:#888;padding:30px 0;">Sin notas</p>';
+      return;
+    }
 
-  // Ancho generoso por nota para móvil - scroll horizontal
-  const widthPerNote = 30;
-  const clefExtra = 110; // clef + keysig + timesig
+    const useKeySig = document.getElementById('useKeySig').checked;
+    const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
 
-  let totalWidth = clefExtra;
-  measures.forEach(m => {
-    totalWidth += Math.max(100, m.notes.length * widthPerNote + 20);
-  });
-  totalWidth = Math.max(totalWidth, 400);
+    // Ancho total generoso para móvil
+    const widthPerNote = 30;
+    const firstExtra = 110;
+    let totalWidth = firstExtra + 20;
+    measures.forEach(m => { totalWidth += Math.max(100, m.notes.length * widthPerNote + 20); });
+    totalWidth = Math.max(totalWidth, 400);
 
-  const height = 140;
-  mount.style.width = totalWidth + 'px';
+    const height = 140;
+    mount.style.width = totalWidth + 'px';
 
-  const renderer = new VF.Renderer(mount, VF.Renderer.Backends.SVG);
-  renderer.resize(totalWidth, height);
-  const ctx = renderer.getContext();
+    const renderer = new VF.Renderer(mount, VF.Renderer.Backends.SVG);
+    renderer.resize(totalWidth, height);
+    const ctx = renderer.getContext();
 
-  const keySigRoot = useKeySig && state.blocks.length
-    ? (bbTrumpet ? transposedRootName(state.blocks[0].root) : state.blocks[0].root)
-    : null;
-
-  renderMeasuresToContext(ctx, measures, {
-    startX: 10, startY: 10, availableWidth: totalWidth - 20,
-    beatsPerMeasure, beatValue,
-    includeClef: true, includeKeySig: !!keySigRoot, includeTimeSig: true,
-    keySigRoot, timesig,
-  });
+    drawMeasuresOnContext(VF, ctx, measures, {
+      startX: 10, startY: 10, totalWidth: totalWidth - 20,
+      beatsPerMeasure, beatValue, timesig,
+      firstMeasureHasClef: true,
+      firstMeasureHasKeySig: !!keySigRoot,
+      firstMeasureHasTimeSig: true,
+      keySigRoot,
+    });
+  } catch (err) {
+    console.error(err);
+    showError("Error al renderizar: " + err.message);
+  }
 }
 
+/* ============== BLOQUES UI ============== */
 function renderBlocks() {
   const container = document.getElementById('blocks');
   const empty = document.getElementById('emptyState');
@@ -686,7 +762,7 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._to);
-  t._to = setTimeout(() => t.classList.remove('show'), 2000);
+  t._to = setTimeout(() => t.classList.remove('show'), 2500);
 }
 
 document.getElementById('addBlock').addEventListener('click', () => {
@@ -709,7 +785,7 @@ document.getElementById('clearBlocks').addEventListener('click', () => {
   }
 });
 
-['title','tempo','timesig','rangeMin','rangeMax','useKeySig','bbTrumpet'].forEach(id => {
+['title','tempo','timesig','rangeMin','rangeMax','useKeySig'].forEach(id => {
   document.getElementById(id).addEventListener('input', renderScore);
   document.getElementById(id).addEventListener('change', renderScore);
 });
@@ -731,7 +807,6 @@ function gatherState() {
     rangeMin: document.getElementById('rangeMin').value,
     rangeMax: document.getElementById('rangeMax').value,
     useKeySig: document.getElementById('useKeySig').checked,
-    bbTrumpet: document.getElementById('bbTrumpet').checked,
     blocks: state.blocks,
   };
 }
@@ -742,7 +817,6 @@ function applyPreset(p) {
   document.getElementById('rangeMin').value = p.rangeMin || 'F#3';
   document.getElementById('rangeMax').value = p.rangeMax || 'C6';
   document.getElementById('useKeySig').checked = !!p.useKeySig;
-  document.getElementById('bbTrumpet').checked = p.bbTrumpet !== false;
   state.blocks = p.blocks || [];
   renderBlocks();
   renderScore();
@@ -790,51 +864,53 @@ document.getElementById('importFile').addEventListener('change', (e) => {
 /* ============== EXPORTAR PDF ============== */
 document.getElementById('exportPdf').addEventListener('click', async () => {
   if (!state.blocks.length) { toast('Añade bloques primero'); return; }
-  if (!VF()) { toast('Cargando librería...'); return; }
-  if (!window.jspdf) { toast('jsPDF no cargado'); return; }
+  const VF = getVF();
+  if (!VF) { toast('Espera a que cargue la librería'); return; }
+  if (!window.jspdf || !window.jspdf.jsPDF) { toast('jsPDF no disponible'); return; }
 
   toast('Generando PDF...');
   try {
-    await generatePdf();
+    await generatePdf(VF);
+    toast('PDF listo');
   } catch (err) {
     console.error(err);
-    toast('Error: ' + err.message);
+    showError("Error en PDF: " + (err.message || err));
+    toast('Error al generar PDF');
   }
 });
 
-async function generatePdf() {
-  // A4 en px @96dpi: 794 x 1123
+async function generatePdf(VF) {
   const pageW = 794, pageH = 1123;
-  const marginX = 40, marginTop = 80, marginBottom = 50;
+  const marginX = 40, marginTop = 85, marginBottom = 50;
   const usableW = pageW - marginX * 2;
 
   const title = document.getElementById('title').value || 'Rutina';
   const tempo = parseInt(document.getElementById('tempo').value) || 80;
-  const timesig = document.getElementById('timesig').value;
   const useKeySig = document.getElementById('useKeySig').checked;
-  const bbTrumpet = document.getElementById('bbTrumpet').checked;
 
-  const { measures, beatsPerMeasure, beatValue } = buildAllNotesAndMeasures();
-  if (!measures.length) throw new Error('sin compases');
+  const { measures, beatsPerMeasure, beatValue, timesig } = buildMeasures();
+  if (!measures.length) throw new Error('Sin compases para exportar');
+
+  const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
 
   // Agrupar compases en sistemas que quepan en usableW
   const notesWidth = 26;
-  const firstClefExtra = 110;
+  const firstExtra = 110;
   const systems = [];
-  let cur = { measures: [], width: firstClefExtra };
+  let cur = { measures: [], estWidth: firstExtra };
   measures.forEach((m) => {
     const mw = Math.max(100, m.notes.length * notesWidth + 20);
-    if (cur.width + mw > usableW && cur.measures.length) {
+    if (cur.estWidth + mw > usableW && cur.measures.length) {
       systems.push(cur);
-      cur = { measures: [], width: 0 };
+      cur = { measures: [], estWidth: 0 };
     }
     cur.measures.push(m);
-    cur.width += mw;
+    cur.estWidth += mw;
   });
   if (cur.measures.length) systems.push(cur);
 
-  const systemHeight = 100;
-  const systemGap = 30;
+  const systemHeight = 110;
+  const systemGap = 25;
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
@@ -842,15 +918,12 @@ async function generatePdf() {
   // Título
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(18);
-  pdf.text(title + (bbTrumpet ? ' · Trompeta Sib' : ''), pageW / 2, 40, { align: 'center' });
+  pdf.text(title, pageW / 2, 42, { align: 'center' });
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(12);
-  pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 60, { align: 'center' });
+  pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 62, { align: 'center' });
 
   let y = marginTop;
-  const keySigRoot = useKeySig && state.blocks.length
-    ? (bbTrumpet ? transposedRootName(state.blocks[0].root) : state.blocks[0].root)
-    : null;
 
   for (let si = 0; si < systems.length; si++) {
     if (y + systemHeight > pageH - marginBottom) {
@@ -858,43 +931,44 @@ async function generatePdf() {
       y = marginTop - 30;
     }
 
-    // Renderizar cada sistema en un div temporal para extraer SVG
+    // Renderizar sistema en div oculto
     const temp = document.createElement('div');
     temp.style.position = 'absolute';
     temp.style.left = '-99999px';
     temp.style.top = '0';
     temp.style.background = '#ffffff';
+    temp.style.width = usableW + 'px';
     document.body.appendChild(temp);
 
-    const renderer = new VF.Renderer(temp, VF.Renderer.Backends.SVG);
-    renderer.resize(usableW, systemHeight);
-    const ctx = renderer.getContext();
+    try {
+      const renderer = new VF.Renderer(temp, VF.Renderer.Backends.SVG);
+      renderer.resize(usableW, systemHeight);
+      const ctx = renderer.getContext();
 
-    renderMeasuresToContext(ctx, systems[si].measures, {
-      startX: 0, startY: 5, availableWidth: usableW,
-      beatsPerMeasure, beatValue,
-      includeClef: true,
-      includeKeySig: si === 0 && !!keySigRoot,
-      includeTimeSig: si === 0,
-      keySigRoot: si === 0 ? keySigRoot : null,
-      timesig,
-    });
+      drawMeasuresOnContext(VF, ctx, systems[si].measures, {
+        startX: 0, startY: 5, totalWidth: usableW,
+        beatsPerMeasure, beatValue, timesig,
+        firstMeasureHasClef: true,
+        firstMeasureHasKeySig: si === 0 && !!keySigRoot,
+        firstMeasureHasTimeSig: si === 0,
+        keySigRoot: si === 0 ? keySigRoot : null,
+      });
 
-    const svgEl = temp.querySelector('svg');
-    if (!svgEl) { document.body.removeChild(temp); throw new Error('no SVG'); }
+      const svgEl = temp.querySelector('svg');
+      if (!svgEl) throw new Error('SVG no generado en sistema ' + (si+1));
 
-    // Forzar attrs
-    svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    svgEl.setAttribute('width', usableW);
-    svgEl.setAttribute('height', systemHeight);
+      svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svgEl.setAttribute('width', usableW);
+      svgEl.setAttribute('height', systemHeight);
 
-    const svgString = new XMLSerializer().serializeToString(svgEl);
-    const imgData = await svgToPngDataUrl(svgString, usableW, systemHeight);
+      const svgString = new XMLSerializer().serializeToString(svgEl);
+      const imgData = await svgToPngDataUrl(svgString, usableW, systemHeight);
 
-    pdf.addImage(imgData, 'PNG', marginX, y, usableW, systemHeight);
-    y += systemHeight + systemGap;
-
-    document.body.removeChild(temp);
+      pdf.addImage(imgData, 'PNG', marginX, y, usableW, systemHeight);
+      y += systemHeight + systemGap;
+    } finally {
+      document.body.removeChild(temp);
+    }
   }
 
   // Pie de página
@@ -907,31 +981,34 @@ async function generatePdf() {
   }
 
   pdf.save((title || 'rutina').replace(/\s+/g,'_') + '.pdf');
-  toast('PDF listo');
 }
 
 function svgToPngDataUrl(svgString, w, h) {
   return new Promise((resolve, reject) => {
-    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(svgBlob);
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        const scale = 2;
-        canvas.width = w * scale;
-        canvas.height = h * scale;
-        const cctx = canvas.getContext('2d');
-        cctx.fillStyle = '#ffffff';
-        cctx.fillRect(0, 0, canvas.width, canvas.height);
-        cctx.scale(scale, scale);
-        cctx.drawImage(img, 0, 0, w, h);
-        URL.revokeObjectURL(url);
-        resolve(canvas.toDataURL('image/png'));
-      } catch(e) { reject(e); }
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Fallo al convertir SVG')); };
-    img.src = url;
+    try {
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const scale = 2;
+          canvas.width = w * scale;
+          canvas.height = h * scale;
+          const cctx = canvas.getContext('2d');
+          cctx.fillStyle = '#ffffff';
+          cctx.fillRect(0, 0, canvas.width, canvas.height);
+          cctx.scale(scale, scale);
+          cctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/png'));
+        } catch(e) { URL.revokeObjectURL(url); reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Imagen SVG no cargó')); };
+      img.src = url;
+    } catch(e) {
+      reject(e);
+    }
   });
 }
 
@@ -939,19 +1016,35 @@ function svgToPngDataUrl(svgString, w, h) {
 populateSelects();
 renderBlocks();
 
+// Ejemplo inicial para que algo se vea al abrir
 state.blocks.push(
   { root:'C', scale:'Mayor (Jónico)', pattern:'Subir y bajar', octaves:2, duration:'8' },
 );
 renderBlocks();
 
+// Esperar a VexFlow
+let attempts = 0;
 const waitVex = setInterval(() => {
-  if (VF()) { clearInterval(waitVex); renderScore(); }
-}, 50);
+  attempts++;
+  if (getVF()) {
+    clearInterval(waitVex);
+    renderScore();
+  } else if (attempts > 100) {
+    clearInterval(waitVex);
+    showError('No se pudo cargar VexFlow. Comprueba tu conexión.');
+  }
+}, 100);
 
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(renderScore, 200);
+});
+
+// Captura de errores globales para no quedarnos sin saber qué pasa
+window.addEventListener('error', (e) => {
+  console.error('Error global:', e.error);
+  showError('Error: ' + (e.error?.message || e.message || 'desconocido'));
 });
 </script>
 
