@@ -150,6 +150,44 @@
     border-radius: 4px;
   }
 
+  .cof-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 8px;
+  }
+  #circleOfFifths .cof-ring {
+    fill: none;
+    stroke: var(--fg);
+    stroke-width: 1;
+  }
+  #circleOfFifths .cof-spoke {
+    stroke: var(--rule);
+    stroke-width: 0.5;
+  }
+  #circleOfFifths .cof-major {
+    fill: var(--fg);
+    font-family: Georgia, serif;
+    font-size: 13px;
+    font-weight: 600;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  #circleOfFifths .cof-minor {
+    fill: var(--muted);
+    font-family: Georgia, serif;
+    font-size: 10px;
+    font-style: italic;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  #circleOfFifths .cof-accidentals {
+    fill: var(--muted);
+    font-family: Arial, sans-serif;
+    font-size: 8px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+
   .score-title {
     text-align: center;
     font-size: 16px;
@@ -277,6 +315,13 @@
       </div>
     </div>
     <button class="block-btn" id="addBlock">＋ Añadir al ejercicio</button>
+  </div>
+
+  <div class="panel">
+    <h2>Círculo de quintas (referencia)</h2>
+    <div class="cof-wrap">
+      <svg id="circleOfFifths" viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="Círculo de quintas"></svg>
+    </div>
   </div>
 
   <div class="panel">
@@ -508,83 +553,140 @@ function durationTicks(d) {
 }
 
 /* ============== CONSTRUIR COMPASES ==============
-   Estrategia para evitar descuadres:
-   - Cada bloque termina en barra de compás: si su última nota no llena
-     el compás, se añaden silencios para cerrarlo.
-   - Así cada bloque empieza siempre en compás nuevo y no se mezclan
-     figuras de bloques distintos. */
+   Enfoque en dos pasos para eliminar descuadres:
+   1) Generar una lista plana de eventos (notas o silencios), cada
+      uno con su duración en ticks (unidad = semicorchea). Entre bloques
+      se insertan silencios para que cada bloque empiece en compás nuevo.
+   2) Rebanar la lista en compases de tamaño exacto (ticksPerMeasure).
+      Si una figura no cabe entera, se parte en dos silencios/notas
+      equivalentes — pero como todas nuestras figuras (q, 8, 16) son
+      divisores exactos de 16, esto nunca pasa en la práctica. */
 function buildMeasures() {
   const timesig = document.getElementById('timesig').value;
   const rangeMin = noteToMidi(document.getElementById('rangeMin').value) || noteToMidi('F#3');
   const rangeMax = noteToMidi(document.getElementById('rangeMax').value) || noteToMidi('A5');
 
   const [beatsPerMeasure, beatValue] = timesig.split('/').map(Number);
-  const ticksPerMeasure = beatsPerMeasure * (16 / beatValue);
+  const ticksPerMeasure = beatsPerMeasure * (16 / beatValue); // entero
 
-  const measures = [];
-  let current = { notes: [], filled: 0 };
+  // --- PASO 1: lista plana de eventos ---
+  const events = []; // { type:'note'|'rest', midi?, preferFlats?, dur, ticks, blockIndex? }
 
-  const pushMeasure = () => {
-    if (current.notes.length || current.filled > 0) {
-      measures.push(current);
-    }
-    current = { notes: [], filled: 0 };
+  const addNote = (midi, preferFlats, dur, blockIndex) => {
+    events.push({ type:'note', midi, preferFlats, dur, ticks: durationTicks(dur), blockIndex });
+  };
+  const addRests = (ticksNeeded) => {
+    // Descomponer en silencios de negra/corchea/semicorchea
+    let rem = ticksNeeded;
+    while (rem >= 4) { events.push({ type:'rest', dur:'qr', ticks:4 }); rem -= 4; }
+    while (rem >= 2) { events.push({ type:'rest', dur:'8r', ticks:2 }); rem -= 2; }
+    while (rem >= 1) { events.push({ type:'rest', dur:'16r', ticks:1 }); rem -= 1; }
   };
 
-  const addRests = (remaining) => {
-    // Añade silencios de negra/corchea/semicorchea hasta llenar "remaining" ticks
-    while (remaining >= 4) {
-      current.notes.push({ isRest: true, dur: 'qr' });
-      current.filled += 4;
-      remaining -= 4;
-    }
-    while (remaining >= 2) {
-      current.notes.push({ isRest: true, dur: '8r' });
-      current.filled += 2;
-      remaining -= 2;
-    }
-    while (remaining >= 1) {
-      current.notes.push({ isRest: true, dur: '16r' });
-      current.filled += 1;
-      remaining -= 1;
-    }
-  };
+  // Lleva la cuenta de ticks acumulados para saber cuándo cerrar compases
+  let accTicks = 0;
 
-  state.blocks.forEach((block) => {
+  state.blocks.forEach((block, blockIndex) => {
     const midis = buildBlockNotes(block, rangeMin, rangeMax);
     const preferFlats = prefersFlats(block.root);
-    const noteTicks = durationTicks(block.duration);
+
+    // Marcar el índice del primer evento de este bloque (para etiquetas encima)
+    block._firstEventIdx = events.length;
 
     for (const midi of midis) {
-      if (current.filled + noteTicks > ticksPerMeasure) {
-        pushMeasure();
-      }
-      current.notes.push({
-        isRest: false,
-        midi,
-        preferFlats,
-        dur: block.duration,
-      });
-      current.filled += noteTicks;
-      if (current.filled >= ticksPerMeasure) {
-        pushMeasure();
-      }
+      addNote(midi, preferFlats, block.duration, blockIndex);
+      accTicks += durationTicks(block.duration);
     }
 
-    // Al acabar el bloque, rellenar con silencios hasta cerrar el compás
-    if (current.filled > 0 && current.filled < ticksPerMeasure) {
-      addRests(ticksPerMeasure - current.filled);
-      pushMeasure();
+    // Cerrar compás actual con silencios antes de empezar el siguiente bloque
+    const remainder = accTicks % ticksPerMeasure;
+    if (remainder !== 0) {
+      const padding = ticksPerMeasure - remainder;
+      addRests(padding);
+      accTicks += padding;
     }
   });
 
-  // Por si quedó algo abierto
-  if (current.filled > 0) {
-    if (current.filled < ticksPerMeasure) addRests(ticksPerMeasure - current.filled);
-    pushMeasure();
+  // --- PASO 2: rebanar en compases exactos ---
+  const measures = [];
+  let currentNotes = [];
+  let currentTicks = 0;
+
+  for (const ev of events) {
+    // Si la figura no cabe entera en el compás actual, hay que partirla.
+    // Con figuras q/8/16 en compases con ticksPerMeasure múltiplo de 4/2/1,
+    // esto en la práctica no ocurre si addRests genera figuras compatibles.
+    // Pero por seguridad, si ocurriera con un silencio, lo partimos.
+    if (currentTicks + ev.ticks > ticksPerMeasure) {
+      // Parte que cabe
+      const fits = ticksPerMeasure - currentTicks;
+      if (ev.type === 'rest') {
+        // Rellenar lo que queda con silencios más pequeños
+        let rem = fits;
+        while (rem >= 4) { currentNotes.push({ type:'rest', dur:'qr', ticks:4 }); rem -= 4; }
+        while (rem >= 2) { currentNotes.push({ type:'rest', dur:'8r', ticks:2 }); rem -= 2; }
+        while (rem >= 1) { currentNotes.push({ type:'rest', dur:'16r', ticks:1 }); rem -= 1; }
+      } else {
+        // Nota: no debería pasar. Si pasa, la descartamos con warning.
+        console.warn('Nota no cabe en compás, descartada:', ev);
+      }
+      measures.push({ notes: currentNotes, ticks: ticksPerMeasure });
+      currentNotes = [];
+      currentTicks = 0;
+      // Parte restante del evento
+      let leftover = ev.ticks - fits;
+      if (ev.type === 'rest' && leftover > 0) {
+        let rem = leftover;
+        while (rem >= 4) { currentNotes.push({ type:'rest', dur:'qr', ticks:4 }); rem -= 4; currentTicks += 4; }
+        while (rem >= 2) { currentNotes.push({ type:'rest', dur:'8r', ticks:2 }); rem -= 2; currentTicks += 2; }
+        while (rem >= 1) { currentNotes.push({ type:'rest', dur:'16r', ticks:1 }); rem -= 1; currentTicks += 1; }
+      }
+    } else {
+      currentNotes.push(ev);
+      currentTicks += ev.ticks;
+      if (currentTicks === ticksPerMeasure) {
+        measures.push({ notes: currentNotes, ticks: ticksPerMeasure });
+        currentNotes = [];
+        currentTicks = 0;
+      }
+    }
+  }
+  // Si queda algo abierto (no debería), cerrar
+  if (currentNotes.length > 0) {
+    const rem = ticksPerMeasure - currentTicks;
+    if (rem > 0) {
+      let r = rem;
+      while (r >= 4) { currentNotes.push({ type:'rest', dur:'qr', ticks:4 }); r -= 4; }
+      while (r >= 2) { currentNotes.push({ type:'rest', dur:'8r', ticks:2 }); r -= 2; }
+      while (r >= 1) { currentNotes.push({ type:'rest', dur:'16r', ticks:1 }); r -= 1; }
+    }
+    measures.push({ notes: currentNotes, ticks: ticksPerMeasure });
   }
 
-  return { measures, beatsPerMeasure, beatValue, ticksPerMeasure, timesig };
+  // --- Marcar qué compás es el inicio de cada bloque ---
+  // Recorremos el stream de nuevo para saber en qué compás cae el primer
+  // evento de cada bloque.
+  const blockStartMeasure = {}; // blockIndex -> measure index
+  {
+    let mi = 0, mt = 0;
+    let ei = 0;
+    for (const ev of events) {
+      // Determinar blockIndex si es el primer evento de un bloque
+      state.blocks.forEach((b, bi) => {
+        if (b._firstEventIdx === ei && !(bi in blockStartMeasure)) {
+          blockStartMeasure[bi] = mi;
+        }
+      });
+      mt += ev.ticks;
+      if (mt >= ticksPerMeasure) {
+        mt -= ticksPerMeasure;
+        mi++;
+      }
+      ei++;
+    }
+  }
+
+  return { measures, beatsPerMeasure, beatValue, ticksPerMeasure, timesig, blockStartMeasure };
 }
 
 /* ============== ESTADO ============== */
@@ -607,6 +709,81 @@ function populateSelects() {
   pt.value = "Escala";
 }
 
+/* ============== CÍRCULO DE QUINTAS (referencia visual) ============== */
+function drawCircleOfFifths() {
+  const svg = document.getElementById('circleOfFifths');
+  if (!svg) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const cx = 120, cy = 120;
+  const rOuter = 110;
+  const rMajor = 92;    // radio para mayores
+  const rAcc = 73;      // radio para #/b
+  const rMinor = 55;    // radio para menores
+  const rInner = 36;
+
+  // Anillos
+  [rOuter, rInner].forEach(r => {
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
+    c.setAttribute('class', 'cof-ring');
+    svg.appendChild(c);
+  });
+  // Anillo intermedio fino que separa mayor/menor
+  const cMid = document.createElementNS(ns, 'circle');
+  cMid.setAttribute('cx', cx); cMid.setAttribute('cy', cy); cMid.setAttribute('r', 66);
+  cMid.setAttribute('class', 'cof-ring');
+  cMid.setAttribute('stroke-opacity', '0.4');
+  svg.appendChild(cMid);
+
+  // 12 posiciones en el círculo de quintas
+  // Orden: C arriba, luego sentido horario quintas ascendentes
+  const majors  = ['C','G','D','A','E','B','F♯','D♭','A♭','E♭','B♭','F'];
+  const minors  = ['Am','Em','Bm','F♯m','C♯m','G♯m','D♯m','B♭m','Fm','Cm','Gm','Dm'];
+  // Nº de sostenidos o bemoles en la armadura
+  const accs    = ['','1♯','2♯','3♯','4♯','5♯','6♯/6♭','5♭','4♭','3♭','2♭','1♭'];
+
+  for (let i = 0; i < 12; i++) {
+    const angle = -Math.PI / 2 + (i * Math.PI / 6); // empieza arriba (-90°), cada 30°
+    const ca = Math.cos(angle), sa = Math.sin(angle);
+
+    // Radios
+    const x1 = cx + ca * rInner, y1 = cy + sa * rInner;
+    const x2 = cx + ca * rOuter, y2 = cy + sa * rOuter;
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+    line.setAttribute('class', 'cof-spoke');
+    svg.appendChild(line);
+
+    // Posiciones de texto: a mitad de cada sector
+    const aMid = angle + Math.PI / 12; // +15° para centrar en el sector
+    const cm = Math.cos(aMid), sm = Math.sin(aMid);
+
+    const tMaj = document.createElementNS(ns, 'text');
+    tMaj.setAttribute('x', cx + cm * rMajor);
+    tMaj.setAttribute('y', cy + sm * rMajor);
+    tMaj.setAttribute('class', 'cof-major');
+    tMaj.textContent = majors[i];
+    svg.appendChild(tMaj);
+
+    const tAcc = document.createElementNS(ns, 'text');
+    tAcc.setAttribute('x', cx + cm * rAcc);
+    tAcc.setAttribute('y', cy + sm * rAcc);
+    tAcc.setAttribute('class', 'cof-accidentals');
+    tAcc.textContent = accs[i];
+    svg.appendChild(tAcc);
+
+    const tMin = document.createElementNS(ns, 'text');
+    tMin.setAttribute('x', cx + cm * rMinor);
+    tMin.setAttribute('y', cy + sm * rMinor);
+    tMin.setAttribute('class', 'cof-minor');
+    tMin.textContent = minors[i];
+    svg.appendChild(tMin);
+  }
+}
+
 /* ============== RENDERIZADO VEXFLOW ============== */
 function getVF() {
   if (window.Vex && window.Vex.Flow) return window.Vex.Flow;
@@ -620,6 +797,9 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     beatsPerMeasure, beatValue, timesig,
     firstMeasureHasClef, firstMeasureHasKeySig, firstMeasureHasTimeSig,
     keySigRoot,
+    measureIndexOffset = 0,       // qué índice global tiene measures[0]
+    blockStartMeasure = {},       // { blockIndex: globalMeasureIndex }
+    blockLabels = {},             // { blockIndex: "C Mayor" }
   } = opts;
 
   const notesInEach = measures.map(m => Math.max(1, m.notes.length));
@@ -631,10 +811,27 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
   const availForNotes = Math.max(200, totalWidth - firstExtra - 20);
   const widths = notesInEach.map(n => Math.max(90, Math.floor(availForNotes * (n / totalNotes))));
 
+  // Mapa inverso: globalMeasureIndex -> blockIndex (para saber dónde poner etiqueta)
+  const measureToBlock = {};
+  Object.keys(blockStartMeasure).forEach(bi => {
+    measureToBlock[blockStartMeasure[bi]] = parseInt(bi, 10);
+  });
+
   let x = startX;
+  const measurePositions = []; // guarda {x, bi?} para luego dibujar etiquetas
+
   measures.forEach((measure, mi) => {
+    const globalMi = mi + measureIndexOffset;
     const extra = (mi === 0) ? firstExtra : 0;
     const mw = widths[mi] + extra;
+    const staveStartX = x;
+    const notesStartX = x + extra; // dónde empiezan las notas (tras clef/armadura/compás)
+
+    measurePositions.push({
+      x: staveStartX,
+      notesX: notesStartX,
+      blockIndex: measureToBlock[globalMi],
+    });
 
     const stave = new VF.Stave(x, startY, mw);
     if (mi === 0) {
@@ -649,7 +846,7 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     const vexNotes = [];
     measure.notes.forEach(n => {
       try {
-        if (n.isRest) {
+        if (n.type === 'rest') {
           const rn = new VF.StaveNote({ keys: ['b/4'], duration: n.dur, clef: 'treble' });
           vexNotes.push(rn);
         } else {
@@ -672,13 +869,33 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     }
 
     try {
+      // STRICT primero: detecta descuadres matemáticos.
       const voice = new VF.Voice({ num_beats: beatsPerMeasure, beat_value: beatValue });
-      voice.setMode(VF.Voice.Mode.SOFT);
+      try {
+        if (VF.Voice.Mode && VF.Voice.Mode.STRICT !== undefined) {
+          voice.setMode(VF.Voice.Mode.STRICT);
+        }
+      } catch(e) {}
       voice.addTickables(vexNotes);
 
       const formatter = new VF.Formatter();
-      formatter.joinVoices([voice]);
-      formatter.format([voice], Math.max(50, mw - extra - 20));
+      try {
+        formatter.joinVoices([voice]);
+        formatter.format([voice], Math.max(50, mw - extra - 20));
+      } catch(strictErr) {
+        // Si STRICT falla (no debería con nuestro builder), caemos a SOFT.
+        console.warn('STRICT falló en compás', mi, strictErr.message, '-> retry SOFT');
+        const voice2 = new VF.Voice({ num_beats: beatsPerMeasure, beat_value: beatValue });
+        try { voice2.setMode(VF.Voice.Mode.SOFT); } catch(e){}
+        voice2.addTickables(vexNotes);
+        new VF.Formatter().joinVoices([voice2]).format([voice2], Math.max(50, mw - extra - 20));
+        const nonRests2 = vexNotes.filter(vn => { try { return !(vn.isRest && vn.isRest()); } catch(e){ return true; }});
+        let beams2 = []; try { beams2 = VF.Beam.generateBeams(nonRests2); } catch(e) {}
+        voice2.draw(ctx, stave);
+        beams2.forEach(b => { try { b.setContext(ctx).draw(); } catch(e){} });
+        x += mw;
+        return;
+      }
 
       // Beams solo en notas reales
       const nonRests = vexNotes.filter(vn => {
@@ -697,6 +914,31 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
 
     x += mw;
   });
+
+  // ---- Dibujar etiquetas de bloque ENCIMA del pentagrama ----
+  // Las etiquetas van en el espacio reservado sobre el stave (startY - 10 aprox)
+  try {
+    const svg = ctx.svg; // VexFlow SVG context expone el SVG raíz
+    if (svg) {
+      const ns = 'http://www.w3.org/2000/svg';
+      measurePositions.forEach(pos => {
+        if (pos.blockIndex == null) return;
+        const label = blockLabels[pos.blockIndex];
+        if (!label) return;
+        const text = document.createElementNS(ns, 'text');
+        text.setAttribute('x', pos.notesX);
+        text.setAttribute('y', startY - 2); // justo arriba del pentagrama
+        text.setAttribute('font-family', 'Arial, sans-serif');
+        text.setAttribute('font-size', '12');
+        text.setAttribute('font-weight', 'bold');
+        text.setAttribute('fill', '#000');
+        text.textContent = label;
+        svg.appendChild(text);
+      });
+    }
+  } catch(e) {
+    console.warn('No se pudieron dibujar etiquetas:', e);
+  }
 }
 
 function showError(msg) {
@@ -731,7 +973,7 @@ function renderScore() {
   }
 
   try {
-    const { measures, beatsPerMeasure, beatValue, timesig } = buildMeasures();
+    const { measures, beatsPerMeasure, beatValue, timesig, blockStartMeasure } = buildMeasures();
     if (!measures.length) {
       mount.innerHTML = '<p style="text-align:center;color:#888;padding:30px 0;">Sin notas</p>';
       return;
@@ -740,13 +982,21 @@ function renderScore() {
     const useKeySig = document.getElementById('useKeySig').checked;
     const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
 
+    // Etiquetas: nombre completo de la escala por bloque
+    const blockLabels = {};
+    state.blocks.forEach((b, i) => {
+      blockLabels[i] = b.root + ' ' + b.scale;
+    });
+
     const widthPerNote = 30;
     const firstExtra = 110;
     let totalWidth = firstExtra + 20;
     measures.forEach(m => { totalWidth += Math.max(100, m.notes.length * widthPerNote + 20); });
     totalWidth = Math.max(totalWidth, 400);
 
-    const height = 140;
+    // Espacio extra arriba para las etiquetas de escala
+    const topSpace = 28;
+    const height = 140 + topSpace;
     mount.style.width = totalWidth + 'px';
 
     const renderer = new VF.Renderer(mount, VF.Renderer.Backends.SVG);
@@ -754,12 +1004,15 @@ function renderScore() {
     const ctx = renderer.getContext();
 
     drawMeasuresOnContext(VF, ctx, measures, {
-      startX: 10, startY: 10, totalWidth: totalWidth - 20,
+      startX: 10, startY: 10 + topSpace, totalWidth: totalWidth - 20,
       beatsPerMeasure, beatValue, timesig,
       firstMeasureHasClef: true,
       firstMeasureHasKeySig: !!keySigRoot,
       firstMeasureHasTimeSig: true,
       keySigRoot,
+      measureIndexOffset: 0,
+      blockStartMeasure,
+      blockLabels,
     });
   } catch (err) {
     console.error(err);
@@ -847,6 +1100,7 @@ function applyNight(on) {
   document.body.classList.toggle('night', on);
   nightBtn.textContent = on ? 'Modo día' : 'Modo noche';
   localStorage.setItem('nightMode', on ? '1' : '0');
+  // Los SVG del círculo usan var(--fg) vía CSS, no necesita redraw.
 }
 nightBtn.addEventListener('click', () => applyNight(!document.body.classList.contains('night')));
 applyNight(localStorage.getItem('nightMode') === '1');
@@ -946,28 +1200,32 @@ async function generatePdf(VF) {
   const tempo = parseInt(document.getElementById('tempo').value) || 80;
   const useKeySig = document.getElementById('useKeySig').checked;
 
-  const { measures, beatsPerMeasure, beatValue, timesig } = buildMeasures();
+  const { measures, beatsPerMeasure, beatValue, timesig, blockStartMeasure } = buildMeasures();
   if (!measures.length) throw new Error('Sin compases para exportar');
 
   const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
 
+  const blockLabels = {};
+  state.blocks.forEach((b, i) => { blockLabels[i] = b.root + ' ' + b.scale; });
+
   const notesWidth = 26;
   const firstExtra = 110;
-  const systems = [];
-  let cur = { measures: [], estWidth: firstExtra };
-  measures.forEach((m) => {
+  const systems = []; // cada item: { measures, offset }
+  let cur = { measures: [], estWidth: firstExtra, offset: 0 };
+  let runningOffset = 0;
+  measures.forEach((m, idx) => {
     const mw = Math.max(100, m.notes.length * notesWidth + 20);
     if (cur.estWidth + mw > usableW && cur.measures.length) {
       systems.push(cur);
-      cur = { measures: [], estWidth: 0 };
+      cur = { measures: [], estWidth: 0, offset: idx };
     }
     cur.measures.push(m);
     cur.estWidth += mw;
   });
   if (cur.measures.length) systems.push(cur);
 
-  const systemHeight = 110;
-  const systemGap = 25;
+  const systemHeight = 130; // un poco más alto para las etiquetas
+  const systemGap = 20;
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
@@ -1001,12 +1259,15 @@ async function generatePdf(VF) {
       const ctx = renderer.getContext();
 
       drawMeasuresOnContext(VF, ctx, systems[si].measures, {
-        startX: 0, startY: 5, totalWidth: usableW,
+        startX: 0, startY: 30, totalWidth: usableW, // 30 = espacio para etiqueta
         beatsPerMeasure, beatValue, timesig,
         firstMeasureHasClef: true,
         firstMeasureHasKeySig: si === 0 && !!keySigRoot,
         firstMeasureHasTimeSig: si === 0,
         keySigRoot: si === 0 ? keySigRoot : null,
+        measureIndexOffset: systems[si].offset,
+        blockStartMeasure,
+        blockLabels,
       });
 
       const svgEl = temp.querySelector('svg');
@@ -1066,6 +1327,7 @@ function svgToPngDataUrl(svgString, w, h) {
 
 /* ============== INIT ============== */
 populateSelects();
+drawCircleOfFifths();
 renderBlocks();
 
 state.blocks.push(
