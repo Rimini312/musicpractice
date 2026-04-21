@@ -453,7 +453,8 @@ function prefersFlats(root) {
 /* ============== CONSTRUCCIÓN DE NOTAS DEL BLOQUE ==============
    Se elige la octava base de forma que la tónica esté lo más grave
    posible dentro del rango [minM, maxM]. Luego se aplica el patrón
-   sobre los grados de la escala. */
+   sobre los grados de la escala. Si alguna nota supera maxM, se baja
+   por octavas hasta quedar dentro del rango (rebote). */
 function buildBlockNotes(block, minM, maxM) {
   const { root, scale, octaves, pattern } = block;
   const intervals = SCALES[scale];
@@ -478,8 +479,23 @@ function buildBlockNotes(block, minM, maxM) {
 
   const n = grades.length;
   const seq = patternFn(n);
-  // Mapear índices 1-based a midi
-  return seq.map(idx => grades[idx - 1]).filter(m => m != null);
+  // Mapear índices 1-based a MIDI, aplicando rebote al máximo y al mínimo
+  return seq
+    .map(idx => grades[idx - 1])
+    .filter(m => m != null)
+    .map(m => bounceMidi(m, minM, maxM));
+}
+
+// Si midi > maxM, baja octavas; si < minM, sube octavas. Así las notas
+// siempre caen dentro del rango permitido.
+function bounceMidi(midi, minM, maxM) {
+  let m = midi, safety = 20;
+  while (safety-- > 0) {
+    if (m > maxM) m -= 12;
+    else if (m < minM) m += 12;
+    else break;
+  }
+  return m;
 }
 
 /* ============== DURACIONES ============== */
