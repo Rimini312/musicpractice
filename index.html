@@ -256,10 +256,6 @@
         <select id="scale"></select>
       </div>
       <div class="field">
-        <label>Patrón</label>
-        <select id="pattern"></select>
-      </div>
-      <div class="field">
         <label>Octavas</label>
         <select id="octaves">
           <option value="1">1</option>
@@ -276,7 +272,7 @@
         </select>
       </div>
     </div>
-    <button class="block-btn" id="addBlock">＋ Añadir al ejercicio</button>
+    <button class="block-btn" id="addBlock">＋ Añadir al ejercicio (subir y bajar)</button>
   </div>
 
   <div class="panel">
@@ -302,7 +298,7 @@
       </div>
       <div class="field">
         <label>Nota máx</label>
-        <input type="text" id="rangeMax" value="C6" />
+        <input type="text" id="rangeMax" value="A5" />
       </div>
     </div>
     <div class="checkbox-field">
@@ -384,41 +380,6 @@ const SCALES = {
   "Iwato":                    [0,1,5,6,10],
 };
 
-/* ============== PATRONES ============== */
-const PATTERNS = {
-  "Subir": (n) => range(1, n),
-  "Bajar": (n) => range(n, 1),
-  "Subir y bajar": (n) => [...range(1, n), ...range(n-1, 1)],
-  "Bajar y subir": (n) => [...range(n, 1), ...range(2, n)],
-  "Terceras ↑": (n) => pairs(n, 2, false),
-  "Terceras ↓": (n) => pairs(n, 2, true),
-  "Terceras ↑↓": (n) => [...pairs(n, 2, false), ...pairs(n, 2, true).reverse()],
-  "Cuartas ↑": (n) => pairs(n, 3, false),
-  "Cuartas ↓": (n) => pairs(n, 3, true),
-  "Quintas ↑": (n) => pairs(n, 4, false),
-  "Sextas ↑":  (n) => pairs(n, 5, false),
-  "Octavas ↑": (n) => pairs(n, 7, false),
-  "Grupos de 3 ↑": (n) => groups(n, 3, false),
-  "Grupos de 3 ↓": (n) => groups(n, 3, true),
-  "Grupos de 4 ↑": (n) => groups(n, 4, false),
-  "Grupos de 4 ↓": (n) => groups(n, 4, true),
-  "1-3-2-4 ↑": (n) => altThirds(n, false),
-  "1-3-2-4 ↓": (n) => altThirds(n, true),
-  "1-2-3-5": (n) => patternSteps(n, [0,1,2,4]),
-  "1-3-5-3": (n) => patternSteps(n, [0,2,4,2]),
-  "1-3-5-8": (n) => patternSteps(n, [0,2,4,7]),
-  "Pivote 1-3-1-4-1-5": (n) => pivot(n),
-  "Susp. 1-2-1-3-1-4":  (n) => suspension(n),
-};
-
-function range(a, b){ const o=[]; if(a<=b) for(let i=a;i<=b;i++) o.push(i); else for(let i=a;i>=b;i--) o.push(i); return o; }
-function pairs(n, step, desc){ const o=[]; for(let i=1;i+step<=n;i++){ if(desc) o.push(i+step,i); else o.push(i,i+step);} return o; }
-function groups(n, size, desc){ const o=[]; for(let i=1;i+size-1<=n;i++){ const g=[]; for(let k=0;k<size;k++) g.push(i+k); if(desc) g.reverse(); o.push(...g); } return o; }
-function altThirds(n, desc){ const o=[]; for(let i=1;i+2<=n;i++){ o.push(i,i+2);} return desc ? o.slice().reverse() : o; }
-function patternSteps(n, offs){ const o=[]; const m=Math.max(...offs); for(let i=1;i+m<=n;i++) offs.forEach(x=>o.push(i+x)); return o; }
-function pivot(n){ const o=[]; for(let i=1;i+4<=n;i++) o.push(i,i+2,i,i+3,i,i+4); return o; }
-function suspension(n){ const o=[]; for(let i=1;i+3<=n;i++) o.push(i,i+1,i,i+2,i,i+3); return o; }
-
 /* ============== MIDI / NOTAS ============== */
 const SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
@@ -445,27 +406,131 @@ function prefersFlats(root) {
   return ["F","Bb","Eb","Ab","Db","Gb","Cb"].includes(root) || String(root).includes("b");
 }
 
-function scaleNotes(scaleName, rootName, octaves, baseOct) {
-  const intervals = SCALES[scaleName];
-  if (!intervals) throw new Error("Escala no encontrada: " + scaleName);
-  const rootMidi = noteToMidi(rootName + baseOct);
-  if (rootMidi == null) throw new Error("Tónica inválida: " + rootName);
-  const notes = [];
-  for (let o = 0; o < octaves; o++) {
-    for (const iv of intervals) notes.push(rootMidi + iv + 12 * o);
+/* ============== CONSTRUCCIÓN DE NOTAS DEL BLOQUE ==============
+   Nueva lógica: se elige la octava base de forma que la tónica esté
+   lo más grave posible dentro del rango [minM, maxM], y el tope de
+   la escala (tónica + 12*octavas) también quepa. Si no cabe todo,
+   se sube la base lo justo. */
+function buildBlockNotes(block, minM, maxM) {
+  const { root, scale, octaves } = block;
+  const intervals = SCALES[scale];
+  if (!intervals) throw new Error("Escala no encontrada: " + scale);
+
+  // Buscar la octava base más grave posible tal que rootMidi >= minM
+  // Probamos desde oct 1 hacia arriba.
+  let baseOct = 1;
+  let rootMidi = noteToMidi(root + baseOct);
+  while (rootMidi != null && rootMidi < minM) {
+    baseOct++;
+    rootMidi = noteToMidi(root + baseOct);
   }
-  notes.push(rootMidi + 12 * octaves);
-  return notes;
+  // Si el tope (root + 12*octavas) se pasa del máximo, NO subimos más:
+  // dejamos que se pase, porque el usuario ha pedido expresamente ese
+  // nº de octavas. Así el min siempre se respeta.
+
+  // Construir escala ascendente incluyendo la octava final superior
+  const up = [];
+  for (let o = 0; o < octaves; o++) {
+    for (const iv of intervals) up.push(rootMidi + iv + 12 * o);
+  }
+  up.push(rootMidi + 12 * octaves); // octava final
+
+  // Patrón: subir y bajar (sin repetir la nota más aguda)
+  const down = up.slice(0, -1).reverse(); // descendente sin duplicar la cima
+  // Tampoco duplicamos la primera al final: quitamos la última del descendente (tónica)
+  // Para que no termine con dos tónicas pegadas si se concatena con otro bloque, dejamos la tónica final.
+  const seq = [...up, ...down];
+
+  return seq;
 }
 
-function bounceMidi(midi, minM, maxM) {
-  let m = midi, safety = 20;
-  while (safety-- > 0) {
-    if (m > maxM) m -= 12;
-    else if (m < minM) m += 12;
-    else break;
+/* ============== DURACIONES ============== */
+// "Ticks" en unidades de semicorchea (16ª nota): negra=4, corchea=2, semicorchea=1
+function durationTicks(d) {
+  if (d === 'q') return 4;
+  if (d === '8') return 2;
+  if (d === '16') return 1;
+  return 2;
+}
+
+/* ============== CONSTRUIR COMPASES ==============
+   Estrategia para evitar descuadres:
+   - Cada bloque termina en barra de compás: si su última nota no llena
+     el compás, se añaden silencios para cerrarlo.
+   - Así cada bloque empieza siempre en compás nuevo y no se mezclan
+     figuras de bloques distintos. */
+function buildMeasures() {
+  const timesig = document.getElementById('timesig').value;
+  const rangeMin = noteToMidi(document.getElementById('rangeMin').value) || noteToMidi('F#3');
+  const rangeMax = noteToMidi(document.getElementById('rangeMax').value) || noteToMidi('A5');
+
+  const [beatsPerMeasure, beatValue] = timesig.split('/').map(Number);
+  const ticksPerMeasure = beatsPerMeasure * (16 / beatValue);
+
+  const measures = [];
+  let current = { notes: [], filled: 0 };
+
+  const pushMeasure = () => {
+    if (current.notes.length || current.filled > 0) {
+      measures.push(current);
+    }
+    current = { notes: [], filled: 0 };
+  };
+
+  const addRests = (remaining) => {
+    // Añade silencios de negra/corchea/semicorchea hasta llenar "remaining" ticks
+    while (remaining >= 4) {
+      current.notes.push({ isRest: true, dur: 'qr' });
+      current.filled += 4;
+      remaining -= 4;
+    }
+    while (remaining >= 2) {
+      current.notes.push({ isRest: true, dur: '8r' });
+      current.filled += 2;
+      remaining -= 2;
+    }
+    while (remaining >= 1) {
+      current.notes.push({ isRest: true, dur: '16r' });
+      current.filled += 1;
+      remaining -= 1;
+    }
+  };
+
+  state.blocks.forEach((block) => {
+    const midis = buildBlockNotes(block, rangeMin, rangeMax);
+    const preferFlats = prefersFlats(block.root);
+    const noteTicks = durationTicks(block.duration);
+
+    for (const midi of midis) {
+      if (current.filled + noteTicks > ticksPerMeasure) {
+        pushMeasure();
+      }
+      current.notes.push({
+        isRest: false,
+        midi,
+        preferFlats,
+        dur: block.duration,
+      });
+      current.filled += noteTicks;
+      if (current.filled >= ticksPerMeasure) {
+        pushMeasure();
+      }
+    }
+
+    // Al acabar el bloque, rellenar con silencios hasta cerrar el compás
+    if (current.filled > 0 && current.filled < ticksPerMeasure) {
+      addRests(ticksPerMeasure - current.filled);
+      pushMeasure();
+    }
+  });
+
+  // Por si quedó algo abierto
+  if (current.filled > 0) {
+    if (current.filled < ticksPerMeasure) addRests(ticksPerMeasure - current.filled);
+    pushMeasure();
   }
-  return m;
+
+  return { measures, beatsPerMeasure, beatValue, ticksPerMeasure, timesig };
 }
 
 /* ============== ESTADO ============== */
@@ -478,82 +543,12 @@ function populateSelects() {
     o.value = k; o.textContent = k;
     sc.appendChild(o);
   });
-  const pt = document.getElementById('pattern');
-  Object.keys(PATTERNS).forEach(k => {
-    const o = document.createElement('option');
-    o.value = k; o.textContent = k;
-    pt.appendChild(o);
-  });
-}
-
-function buildBlockNotes(block, minM, maxM) {
-  const { root, scale, pattern, octaves } = block;
-  let baseOct = 4;
-  let rootMidi = noteToMidi(root + baseOct);
-  while (rootMidi < minM && baseOct < 7) { baseOct++; rootMidi = noteToMidi(root + baseOct); }
-  while (rootMidi + 12 * octaves > maxM + 12 && baseOct > 2) {
-    baseOct--;
-    rootMidi = noteToMidi(root + baseOct);
-  }
-  const midiScale = scaleNotes(scale, root, octaves, baseOct);
-  const n = midiScale.length;
-  const patternFn = PATTERNS[pattern];
-  if (!patternFn) throw new Error("Patrón no encontrado: " + pattern);
-  const seq = patternFn(n);
-  return seq.map(idx => {
-    const m = midiScale[idx - 1];
-    if (m == null) return null;
-    return bounceMidi(m, minM, maxM);
-  }).filter(x => x != null);
-}
-
-/* ============== DURACIONES ============== */
-function durationTicks(d) {
-  if (d === 'q') return 4;
-  if (d === '8') return 2;
-  if (d === '16') return 1;
-  return 2;
-}
-
-function buildMeasures() {
-  const timesig = document.getElementById('timesig').value;
-  const rangeMin = noteToMidi(document.getElementById('rangeMin').value) || noteToMidi('F#3');
-  const rangeMax = noteToMidi(document.getElementById('rangeMax').value) || noteToMidi('C6');
-
-  const [beatsPerMeasure, beatValue] = timesig.split('/').map(Number);
-  const sixteenthsPerMeasure = beatsPerMeasure * (16 / beatValue);
-
-  const allNotes = [];
-  state.blocks.forEach((b) => {
-    const midis = buildBlockNotes(b, rangeMin, rangeMax);
-    const preferFlats = prefersFlats(b.root);
-    midis.forEach(m => allNotes.push({ midi: m, dur: b.duration, preferFlats }));
-  });
-
-  const measures = [];
-  let current = { notes: [], filled: 0 };
-  for (const n of allNotes) {
-    const t = durationTicks(n.dur);
-    if (current.filled + t > sixteenthsPerMeasure + 0.001) {
-      measures.push(current);
-      current = { notes: [], filled: 0 };
-    }
-    current.notes.push(n);
-    current.filled += t;
-  }
-  if (current.notes.length) {
-    const rem = sixteenthsPerMeasure - current.filled;
-    if (rem > 0.001) current.padding = rem;
-    measures.push(current);
-  }
-
-  return { measures, beatsPerMeasure, beatValue, sixteenthsPerMeasure, timesig };
 }
 
 /* ============== RENDERIZADO VEXFLOW ============== */
 function getVF() {
   if (window.Vex && window.Vex.Flow) return window.Vex.Flow;
-  if (window.VexFlow) return window.VexFlow; // por si cambia el namespace
+  if (window.VexFlow) return window.VexFlow;
   return null;
 }
 
@@ -565,7 +560,6 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     keySigRoot,
   } = opts;
 
-  // Calcular ancho de cada compás proporcional al número de notas
   const notesInEach = measures.map(m => Math.max(1, m.notes.length));
   const totalNotes = notesInEach.reduce((a,b) => a+b, 0);
 
@@ -592,26 +586,23 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
 
     const vexNotes = [];
     measure.notes.forEach(n => {
-      const key = midiToVexKey(n.midi, n.preferFlats);
       try {
-        const sn = new VF.StaveNote({ keys: [key], duration: n.dur, clef: 'treble', auto_stem: true });
-        const accMatch = key.match(/[a-g]([#b]+)/);
-        if (accMatch) {
-          sn.addModifier(new VF.Accidental(accMatch[1]), 0);
+        if (n.isRest) {
+          const rn = new VF.StaveNote({ keys: ['b/4'], duration: n.dur, clef: 'treble' });
+          vexNotes.push(rn);
+        } else {
+          const key = midiToVexKey(n.midi, n.preferFlats);
+          const sn = new VF.StaveNote({ keys: [key], duration: n.dur, clef: 'treble', auto_stem: true });
+          const accMatch = key.match(/[a-g]([#b]+)/);
+          if (accMatch) {
+            sn.addModifier(new VF.Accidental(accMatch[1]), 0);
+          }
+          vexNotes.push(sn);
         }
-        vexNotes.push(sn);
       } catch(e) {
-        console.warn("Nota descartada:", key, e);
+        console.warn("Nota descartada:", n, e);
       }
     });
-
-    // Silencios de relleno
-    if (measure.padding) {
-      let rem = measure.padding;
-      while (rem >= 4) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'qr', clef:'treble'})); rem -= 4; }
-      while (rem >= 2) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'8r', clef:'treble'})); rem -= 2; }
-      while (rem >= 1) { vexNotes.push(new VF.StaveNote({keys:['b/4'], duration:'16r', clef:'treble'})); rem -= 1; }
-    }
 
     if (vexNotes.length === 0) {
       x += mw;
@@ -627,9 +618,9 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
       formatter.joinVoices([voice]);
       formatter.format([voice], Math.max(50, mw - extra - 20));
 
-      // Beams solo sobre notas no-silencio
-      const nonRests = vexNotes.filter(n => {
-        try { return !n.isRest || !n.isRest(); } catch(e) { return true; }
+      // Beams solo en notas reales
+      const nonRests = vexNotes.filter(vn => {
+        try { return !(vn.isRest && vn.isRest()); } catch(e) { return true; }
       });
       let beams = [];
       try { beams = VF.Beam.generateBeams(nonRests); } catch(e) { beams = []; }
@@ -663,7 +654,7 @@ function renderScore() {
 
   const VF = getVF();
   if (!VF) {
-    mount.innerHTML = '<p style="text-align:center;color:#888;padding:30px 0;">Cargando librería de notación...</p>';
+    mount.innerHTML = '<p style="text-align:center;color:#888;padding:30px 0;">Cargando librería...</p>';
     return;
   }
 
@@ -687,7 +678,6 @@ function renderScore() {
     const useKeySig = document.getElementById('useKeySig').checked;
     const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
 
-    // Ancho total generoso para móvil
     const widthPerNote = 30;
     const firstExtra = 110;
     let totalWidth = firstExtra + 20;
@@ -735,7 +725,7 @@ function renderBlocks() {
     const durLabel = b.duration === 'q' ? '♩ negras' : b.duration === '8' ? '♪ corcheas' : '♬ semicorcheas';
     div.innerHTML = '<div class="num">' + (i+1) + '</div>' +
       '<div class="desc"><div class="main">' + b.root + ' · ' + b.scale + '</div>' +
-      '<div class="meta">' + b.pattern + ' · ' + b.octaves + ' oct · ' + durLabel + '</div></div>' +
+      '<div class="meta">' + b.octaves + ' oct · ' + durLabel + ' · subir y bajar</div></div>' +
       '<div class="actions">' +
       '<button class="ghost small" data-a="up" data-i="' + i + '">▲</button>' +
       '<button class="ghost small" data-a="dn" data-i="' + i + '">▼</button>' +
@@ -769,7 +759,6 @@ document.getElementById('addBlock').addEventListener('click', () => {
   state.blocks.push({
     root: document.getElementById('root').value,
     scale: document.getElementById('scale').value,
-    pattern: document.getElementById('pattern').value,
     octaves: parseInt(document.getElementById('octaves').value, 10),
     duration: document.getElementById('duration').value,
   });
@@ -815,9 +804,14 @@ function applyPreset(p) {
   document.getElementById('tempo').value = p.tempo || 80;
   document.getElementById('timesig').value = p.timesig || '4/4';
   document.getElementById('rangeMin').value = p.rangeMin || 'F#3';
-  document.getElementById('rangeMax').value = p.rangeMax || 'C6';
+  document.getElementById('rangeMax').value = p.rangeMax || 'A5';
   document.getElementById('useKeySig').checked = !!p.useKeySig;
-  state.blocks = p.blocks || [];
+  state.blocks = (p.blocks || []).map(b => ({
+    root: b.root,
+    scale: b.scale,
+    octaves: b.octaves,
+    duration: b.duration,
+  }));
   renderBlocks();
   renderScore();
 }
@@ -893,7 +887,6 @@ async function generatePdf(VF) {
 
   const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
 
-  // Agrupar compases en sistemas que quepan en usableW
   const notesWidth = 26;
   const firstExtra = 110;
   const systems = [];
@@ -915,7 +908,6 @@ async function generatePdf(VF) {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
 
-  // Título
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(18);
   pdf.text(title, pageW / 2, 42, { align: 'center' });
@@ -931,7 +923,6 @@ async function generatePdf(VF) {
       y = marginTop - 30;
     }
 
-    // Renderizar sistema en div oculto
     const temp = document.createElement('div');
     temp.style.position = 'absolute';
     temp.style.left = '-99999px';
@@ -971,7 +962,6 @@ async function generatePdf(VF) {
     }
   }
 
-  // Pie de página
   const total = pdf.internal.getNumberOfPages();
   for (let p = 1; p <= total; p++) {
     pdf.setPage(p);
@@ -1006,9 +996,7 @@ function svgToPngDataUrl(svgString, w, h) {
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Imagen SVG no cargó')); };
       img.src = url;
-    } catch(e) {
-      reject(e);
-    }
+    } catch(e) { reject(e); }
   });
 }
 
@@ -1016,13 +1004,11 @@ function svgToPngDataUrl(svgString, w, h) {
 populateSelects();
 renderBlocks();
 
-// Ejemplo inicial para que algo se vea al abrir
 state.blocks.push(
-  { root:'C', scale:'Mayor (Jónico)', pattern:'Subir y bajar', octaves:2, duration:'8' },
+  { root:'C', scale:'Mayor (Jónico)', octaves:2, duration:'8' },
 );
 renderBlocks();
 
-// Esperar a VexFlow
 let attempts = 0;
 const waitVex = setInterval(() => {
   attempts++;
@@ -1031,7 +1017,7 @@ const waitVex = setInterval(() => {
     renderScore();
   } else if (attempts > 100) {
     clearInterval(waitVex);
-    showError('No se pudo cargar VexFlow. Comprueba tu conexión.');
+    showError('No se pudo cargar VexFlow.');
   }
 }, 100);
 
@@ -1041,7 +1027,6 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(renderScore, 200);
 });
 
-// Captura de errores globales para no quedarnos sin saber qué pasa
 window.addEventListener('error', (e) => {
   console.error('Error global:', e.error);
   showError('Error: ' + (e.error?.message || e.message || 'desconocido'));
