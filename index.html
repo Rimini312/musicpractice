@@ -256,6 +256,10 @@
         <select id="scale"></select>
       </div>
       <div class="field">
+        <label>Patrón</label>
+        <select id="pattern"></select>
+      </div>
+      <div class="field">
         <label>Octavas</label>
         <select id="octaves">
           <option value="1">1</option>
@@ -272,7 +276,7 @@
         </select>
       </div>
     </div>
-    <button class="block-btn" id="addBlock">＋ Añadir al ejercicio (subir y bajar)</button>
+    <button class="block-btn" id="addBlock">＋ Añadir al ejercicio</button>
   </div>
 
   <div class="panel">
@@ -380,6 +384,46 @@ const SCALES = {
   "Iwato":                    [0,1,5,6,10],
 };
 
+/* ============== PATRONES ==============
+   Todos los patrones generan la secuencia completa "subir y bajar":
+   primero el patrón ascendente, luego el mismo patrón descendente
+   (invertido). Los números como 1,3,5 se refieren a grados de la
+   escala, no a intervalos cromáticos. n = nº total de grados (escala
+   completa incluyendo octavas y nota tope). */
+const PATTERNS = {
+  "Escala":         (n) => upDown(rangeSeq(1, n)),
+  "Terceras":       (n) => upDown(pairs(n, 2, false)),
+  "Cuartas":        (n) => upDown(pairs(n, 3, false)),
+  "Quintas":        (n) => upDown(pairs(n, 4, false)),
+  "Sextas":         (n) => upDown(pairs(n, 5, false)),
+  "Octavas":        (n) => upDown(pairs(n, 7, false)),
+  "Grupos de 3":    (n) => upDown(groups(n, 3, false)),
+  "Grupos de 4":    (n) => upDown(groups(n, 4, false)),
+  "1-3-2-4":        (n) => upDown(altThirds(n)),
+  "1-2-3-5":        (n) => upDown(patternSteps(n, [0,1,2,4])),
+  "1-3-5-3":        (n) => upDown(patternSteps(n, [0,2,4,2])),
+  "1-3-5-8":        (n) => upDown(patternSteps(n, [0,2,4,7])),
+  "Pivote 1-3-1-4-1-5": (n) => upDown(pivot(n)),
+  "Susp. 1-2-1-3-1-4":  (n) => upDown(suspension(n)),
+};
+
+// Concatena la secuencia ascendente con la misma invertida, evitando
+// duplicar la nota de unión (la última del ascendente es la primera
+// del descendente invertido).
+function upDown(ascSeq) {
+  if (!ascSeq.length) return [];
+  const desc = ascSeq.slice(0, -1).reverse();
+  return [...ascSeq, ...desc];
+}
+
+function rangeSeq(a, b){ const o=[]; if(a<=b) for(let i=a;i<=b;i++) o.push(i); else for(let i=a;i>=b;i--) o.push(i); return o; }
+function pairs(n, step, desc){ const o=[]; for(let i=1;i+step<=n;i++){ if(desc) o.push(i+step,i); else o.push(i,i+step);} return o; }
+function groups(n, size, desc){ const o=[]; for(let i=1;i+size-1<=n;i++){ const g=[]; for(let k=0;k<size;k++) g.push(i+k); if(desc) g.reverse(); o.push(...g); } return o; }
+function altThirds(n){ const o=[]; for(let i=1;i+2<=n;i++){ o.push(i,i+2);} return o; }
+function patternSteps(n, offs){ const o=[]; const m=Math.max(...offs); for(let i=1;i+m<=n;i++) offs.forEach(x=>o.push(i+x)); return o; }
+function pivot(n){ const o=[]; for(let i=1;i+4<=n;i++) o.push(i,i+2,i,i+3,i,i+4); return o; }
+function suspension(n){ const o=[]; for(let i=1;i+3<=n;i++) o.push(i,i+1,i,i+2,i,i+3); return o; }
+
 /* ============== MIDI / NOTAS ============== */
 const SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
@@ -407,41 +451,35 @@ function prefersFlats(root) {
 }
 
 /* ============== CONSTRUCCIÓN DE NOTAS DEL BLOQUE ==============
-   Nueva lógica: se elige la octava base de forma que la tónica esté
-   lo más grave posible dentro del rango [minM, maxM], y el tope de
-   la escala (tónica + 12*octavas) también quepa. Si no cabe todo,
-   se sube la base lo justo. */
+   Se elige la octava base de forma que la tónica esté lo más grave
+   posible dentro del rango [minM, maxM]. Luego se aplica el patrón
+   sobre los grados de la escala. */
 function buildBlockNotes(block, minM, maxM) {
-  const { root, scale, octaves } = block;
+  const { root, scale, octaves, pattern } = block;
   const intervals = SCALES[scale];
   if (!intervals) throw new Error("Escala no encontrada: " + scale);
+  const patternFn = PATTERNS[pattern];
+  if (!patternFn) throw new Error("Patrón no encontrado: " + pattern);
 
-  // Buscar la octava base más grave posible tal que rootMidi >= minM
-  // Probamos desde oct 1 hacia arriba.
+  // Octava base: la más grave tal que rootMidi >= minM
   let baseOct = 1;
   let rootMidi = noteToMidi(root + baseOct);
   while (rootMidi != null && rootMidi < minM) {
     baseOct++;
     rootMidi = noteToMidi(root + baseOct);
   }
-  // Si el tope (root + 12*octavas) se pasa del máximo, NO subimos más:
-  // dejamos que se pase, porque el usuario ha pedido expresamente ese
-  // nº de octavas. Así el min siempre se respeta.
 
-  // Construir escala ascendente incluyendo la octava final superior
-  const up = [];
+  // Construir los grados disponibles (escala ascendente con la octava final)
+  const grades = [];
   for (let o = 0; o < octaves; o++) {
-    for (const iv of intervals) up.push(rootMidi + iv + 12 * o);
+    for (const iv of intervals) grades.push(rootMidi + iv + 12 * o);
   }
-  up.push(rootMidi + 12 * octaves); // octava final
+  grades.push(rootMidi + 12 * octaves);
 
-  // Patrón: subir y bajar (sin repetir la nota más aguda)
-  const down = up.slice(0, -1).reverse(); // descendente sin duplicar la cima
-  // Tampoco duplicamos la primera al final: quitamos la última del descendente (tónica)
-  // Para que no termine con dos tónicas pegadas si se concatena con otro bloque, dejamos la tónica final.
-  const seq = [...up, ...down];
-
-  return seq;
+  const n = grades.length;
+  const seq = patternFn(n);
+  // Mapear índices 1-based a midi
+  return seq.map(idx => grades[idx - 1]).filter(m => m != null);
 }
 
 /* ============== DURACIONES ============== */
@@ -543,6 +581,14 @@ function populateSelects() {
     o.value = k; o.textContent = k;
     sc.appendChild(o);
   });
+  const pt = document.getElementById('pattern');
+  Object.keys(PATTERNS).forEach(k => {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = k;
+    pt.appendChild(o);
+  });
+  // Patrón por defecto: "Escala" (subir y bajar simple)
+  pt.value = "Escala";
 }
 
 /* ============== RENDERIZADO VEXFLOW ============== */
@@ -725,7 +771,7 @@ function renderBlocks() {
     const durLabel = b.duration === 'q' ? '♩ negras' : b.duration === '8' ? '♪ corcheas' : '♬ semicorcheas';
     div.innerHTML = '<div class="num">' + (i+1) + '</div>' +
       '<div class="desc"><div class="main">' + b.root + ' · ' + b.scale + '</div>' +
-      '<div class="meta">' + b.octaves + ' oct · ' + durLabel + ' · subir y bajar</div></div>' +
+      '<div class="meta">' + (b.pattern || 'Escala') + ' · ' + b.octaves + ' oct · ' + durLabel + '</div></div>' +
       '<div class="actions">' +
       '<button class="ghost small" data-a="up" data-i="' + i + '">▲</button>' +
       '<button class="ghost small" data-a="dn" data-i="' + i + '">▼</button>' +
@@ -759,6 +805,7 @@ document.getElementById('addBlock').addEventListener('click', () => {
   state.blocks.push({
     root: document.getElementById('root').value,
     scale: document.getElementById('scale').value,
+    pattern: document.getElementById('pattern').value,
     octaves: parseInt(document.getElementById('octaves').value, 10),
     duration: document.getElementById('duration').value,
   });
@@ -809,6 +856,7 @@ function applyPreset(p) {
   state.blocks = (p.blocks || []).map(b => ({
     root: b.root,
     scale: b.scale,
+    pattern: b.pattern || 'Escala',
     octaves: b.octaves,
     duration: b.duration,
   }));
@@ -1005,7 +1053,7 @@ populateSelects();
 renderBlocks();
 
 state.blocks.push(
-  { root:'C', scale:'Mayor (Jónico)', octaves:2, duration:'8' },
+  { root:'C', scale:'Mayor (Jónico)', pattern:'Escala', octaves:2, duration:'8' },
 );
 renderBlocks();
 
