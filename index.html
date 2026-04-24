@@ -223,23 +223,27 @@
   }
 
   .score-block-title {
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 600;
-    color: #666;
-    margin: 0 0 -2px 4px;
-    padding: 0;
-    line-height: 1.1;
+    color: #777;
+    margin: 0;
+    padding: 0 0 0 6px;
+    line-height: 1;
+    height: 9px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
   }
-  body.night .score-block-title { color: #888; }
+  body.night .score-block-title { color: #999; }
 
   .score-block {
     overflow: visible;
+    position: relative;
   }
   .score-block svg {
     overflow: visible !important;
     display: block;
+    margin-top: -1px;
   }
 
   .bottom {
@@ -832,7 +836,18 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
     firstMeasureHasClef, firstMeasureHasKeySig, firstMeasureHasTimeSig,
     keySigRoot,
+    scale = 1, // factor de escala general (0.85 = más compacto)
   } = opts;
+
+  // Si hay escala, aplicamos transform al contexto SVG
+  if (scale !== 1 && ctx.scale) {
+    try { ctx.scale(scale, scale); } catch(e) {}
+  }
+
+  // Los valores startX, startY, totalWidth están YA en coordenadas
+  // pre-escala (coordenadas internas de dibujo), así que no hay que
+  // dividirlos. El caller se encarga de reservar el ancho/alto físico
+  // correcto en el SVG.
 
   // Validación: cada compás debe sumar exactamente ticksPerMeasure.
   measures.forEach((m, i) => {
@@ -877,12 +892,22 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     voicesPerMeasure.push(voice);
   });
 
-  // Repartir anchos proporcionales al número de notas de cada compás
-  const notesInEach = measures.map(m => Math.max(1, m.notes.length));
-  const totalNotes = notesInEach.reduce((a,b) => a+b, 0) || 1;
+  // Contar acidentales por compás para repartir ancho proporcionalmente
+  // (un compás con 4 bemoles necesita más ancho que uno con 0).
+  const weightsPerMeasure = measures.map((m, mi) => {
+    const noteCount = m.notes.length;
+    const accCount = m.notes.filter(n => {
+      if (n.type !== 'note') return false;
+      const key = midiToVexKey(n.midi, n.preferFlats);
+      return /[a-g]([#b]+)/.test(key);
+    }).length;
+    // Cada nota pesa 1, cada acidental suma 0.5 extra
+    return Math.max(1, noteCount + accCount * 0.5);
+  });
+  const totalWeight = weightsPerMeasure.reduce((a,b) => a+b, 0) || 1;
   const availForNotes = Math.max(200, totalWidth - firstExtra - 10);
-  const measureWidths = notesInEach.map(n =>
-    Math.max(90, Math.floor(availForNotes * (n / totalNotes)))
+  const measureWidths = weightsPerMeasure.map(w =>
+    Math.max(80, Math.floor(availForNotes * (w / totalWeight)))
   );
 
   // Crear staves
@@ -972,26 +997,41 @@ function renderScore() {
 
     const useKeySig = document.getElementById('useKeySig').checked;
 
-    // Ancho del SVG: el contenedor disponible, o mínimo para leer bien
-    // En móvil el contenedor suele ser ~350px. Forzamos un mínimo cómodo.
-    const mountWidth = mount.parentElement.clientWidth - 20;
-    const svgWidth = Math.max(600, mountWidth); // 600 mínimo, se hace scroll si no cabe
+    // Escala global: 0.85 hace notas y pentagrama más compactos pero legibles
+    const SCALE = 0.85;
 
-    // Renderizar cada bloque como un SVG independiente apilado verticalmente
+    // Ancho del contenedor disponible (con margen)
+    const containerWidth = Math.max(320, mount.parentElement.clientWidth - 20);
+
     blocksData.forEach((bd) => {
-      // Altura según notas graves/agudas del bloque
+      // Calcular ancho INTERNO necesario (antes de escala): proporcional
+      // al nº de notas + acidentales del bloque.
+      const noteCount = bd.measures.reduce((a, m) => a + m.notes.length, 0);
+      const accCount = bd.measures.reduce((a, m) => a + m.notes.filter(n => {
+        if (n.type !== 'note') return false;
+        const key = midiToVexKey(n.midi, n.preferFlats);
+        return /[a-g]([#b]+)/.test(key);
+      }).length, 0);
+
+      // Cada nota ocupa 26px, cada acidental 10px extra, + header (clef+time+key)
+      const headerWidth = 110;
+      const innerWidth = Math.max(400, headerWidth + noteCount * 26 + accCount * 10);
+
+      // El ancho FÍSICO del SVG tras escala
+      const physWidth = Math.ceil(innerWidth * SCALE);
+
+      // Altura según notas graves/agudas
       const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
       const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-      // Más generoso para evitar recortes: 14px por línea adicional, +margen fijo
-      const topSpace = Math.max(18, 8 + linesAbove * 14);
-      const bottomSpace = Math.max(24, linesBelow * 14 + 14);
+      const topSpace = Math.max(24, 16 + linesAbove * 14);
+      const bottomSpace = Math.max(28, 20 + linesBelow * 14);
       const staveHeight = 50;
-      const blockHeight = topSpace + staveHeight + bottomSpace + 10;
+      const innerHeight = topSpace + staveHeight + bottomSpace;
+      const physHeight = Math.ceil(innerHeight * SCALE);
 
-      // Contenedor del bloque con título arriba
       const blockWrap = document.createElement('div');
       blockWrap.className = 'score-block';
-      blockWrap.style.cssText = 'margin-bottom: 22px;';
+      blockWrap.style.cssText = 'margin-bottom: 18px; width: ' + physWidth + 'px;';
 
       const titleEl = document.createElement('div');
       titleEl.className = 'score-block-title';
@@ -999,29 +1039,35 @@ function renderScore() {
       blockWrap.appendChild(titleEl);
 
       const svgMount = document.createElement('div');
-      svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent; overflow: visible;';
+      svgMount.style.cssText = 'width:' + physWidth + 'px; background: transparent; overflow: visible;';
       blockWrap.appendChild(svgMount);
 
       mount.appendChild(blockWrap);
 
-      // Dibujar este bloque
       const renderer = new VF.Renderer(svgMount, VF.Renderer.Backends.SVG);
-      renderer.resize(svgWidth, blockHeight);
+      renderer.resize(physWidth, physHeight);
       const ctx = renderer.getContext();
 
       const keySigRoot = useKeySig ? bd.root : null;
 
       drawMeasuresOnContext(VF, ctx, bd.measures, {
-        startX: 5, startY: topSpace, totalWidth: svgWidth - 10,
+        startX: 5, startY: topSpace, totalWidth: innerWidth - 10,
         beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
         firstMeasureHasClef: true,
         firstMeasureHasKeySig: !!keySigRoot,
         firstMeasureHasTimeSig: true,
         keySigRoot,
+        scale: SCALE,
       });
     });
 
-    mount.style.width = svgWidth + 'px';
+    // Ancho total del mount = ancho del bloque más grande
+    let maxW = 0;
+    mount.querySelectorAll('.score-block').forEach(b => {
+      const w = parseInt(b.style.width, 10) || 0;
+      if (w > maxW) maxW = w;
+    });
+    mount.style.width = maxW + 'px';
   } catch (err) {
     console.error(err);
     showError("Error al renderizar: " + err.message);
@@ -1227,14 +1273,14 @@ function renderScoreMultiSystem() {
   blocksData.forEach((bd) => {
     const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
     const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-    const topSpace = Math.max(18, 8 + linesAbove * 14);
-    const bottomSpace = Math.max(24, linesBelow * 14 + 14);
+    const topSpace = Math.max(30, 20 + linesAbove * 14);
+    const bottomSpace = Math.max(36, 24 + linesBelow * 14);
     const staveHeight = 50;
-    const blockHeight = topSpace + staveHeight + bottomSpace + 10;
+    const blockHeight = topSpace + staveHeight + bottomSpace;
 
     const blockWrap = document.createElement('div');
     blockWrap.className = 'score-block';
-    blockWrap.style.cssText = 'margin-bottom: 18px;';
+    blockWrap.style.cssText = 'margin-bottom: 22px;';
 
     const titleEl = document.createElement('div');
     titleEl.className = 'score-block-title';
@@ -1408,7 +1454,41 @@ async function generatePdfSvg(VF) {
   const { blocksData, beatsPerMeasure, beatValue, timesig, ticksPerMeasure } = built;
   if (!blocksData.length) throw new Error('Sin bloques para exportar');
 
-  // Div visible pero transparente para renderizar con layout real
+  const SCALE = 0.85;
+
+  // Para cada bloque, decidir cuántos compases caben en el ancho A4.
+  // Criterio: acumular ancho (notas+acidentales+header) hasta que se pase.
+  function splitBlockIntoLines(bd) {
+    const headerWidth = 110; // clef + time + (key) del primer compás
+    const lines = [];
+    let curMeasures = [];
+    let curWidth = headerWidth;
+
+    bd.measures.forEach((m, mi) => {
+      const mNotes = m.notes.length;
+      const mAcc = m.notes.filter(n => {
+        if (n.type !== 'note') return false;
+        const key = midiToVexKey(n.midi, n.preferFlats);
+        return /[a-g]([#b]+)/.test(key);
+      }).length;
+      const mw = Math.max(80, mNotes * 26 + mAcc * 10);
+
+      // Si añadiendo este compás se pasa y ya hay al menos uno, cerramos línea
+      // (El ancho disponible es usableW/SCALE porque luego escalamos)
+      const availPre = usableW / SCALE;
+      if (curWidth + mw > availPre && curMeasures.length > 0) {
+        lines.push(curMeasures);
+        curMeasures = [];
+        curWidth = 0; // las líneas siguientes no tienen clef/time extra
+      }
+      curMeasures.push(m);
+      curWidth += mw;
+    });
+    if (curMeasures.length) lines.push(curMeasures);
+    return lines;
+  }
+
+  // Div visible pero transparente para renderizar
   const renderBox = document.createElement('div');
   renderBox.style.cssText =
     'position: fixed; top: 0; left: 0; width: ' + usableW + 'px; ' +
@@ -1416,41 +1496,71 @@ async function generatePdfSvg(VF) {
   document.body.appendChild(renderBox);
 
   try {
-    const blockAssets = []; // { title, imgData, imgHeight }
+    // Por cada bloque, por cada línea del bloque, renderizar un SVG
+    // y guardar para meter en PDF.
+    const blockAssets = [];
 
     for (const bd of blocksData) {
-      const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
-      const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-      const topSpace = Math.max(18, 8 + linesAbove * 14);
-      const bottomSpace = Math.max(24, linesBelow * 14 + 14);
-      const blockHeight = topSpace + 50 + bottomSpace + 10;
+      const lines = splitBlockIntoLines(bd);
 
-      const sysDiv = document.createElement('div');
-      sysDiv.style.cssText = 'width:' + usableW + 'px; height:' + blockHeight + 'px; background:#ffffff;';
-      renderBox.appendChild(sysDiv);
-
-      const renderer = new VF.Renderer(sysDiv, VF.Renderer.Backends.SVG);
-      renderer.resize(usableW, blockHeight);
-      const ctx = renderer.getContext();
-
-      const keySigRoot = useKeySig ? bd.root : null;
-
-      drawMeasuresOnContext(VF, ctx, bd.measures, {
-        startX: 5, startY: topSpace, totalWidth: usableW - 10,
-        beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
-        firstMeasureHasClef: true,
-        firstMeasureHasKeySig: !!keySigRoot,
-        firstMeasureHasTimeSig: true,
-        keySigRoot,
+      // Calcular rango por línea
+      const linesWithRange = lines.map(lineMeasures => {
+        let lo = 999, hi = -999;
+        lineMeasures.forEach(m => m.notes.forEach(n => {
+          if (n.type === 'note') {
+            if (n.midi < lo) lo = n.midi;
+            if (n.midi > hi) hi = n.midi;
+          }
+        }));
+        return { measures: lineMeasures, lowestMidi: lo === 999 ? 72 : lo, highestMidi: hi === -999 ? 72 : hi };
       });
 
-      const svgEl = sysDiv.querySelector('svg');
-      if (!svgEl) throw new Error('SVG no generado para bloque ' + bd.label);
-      svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      svgEl.setAttribute('width', String(usableW));
-      svgEl.setAttribute('height', String(blockHeight));
+      for (let li = 0; li < linesWithRange.length; li++) {
+        const ln = linesWithRange[li];
+        const isFirstLine = (li === 0);
 
-      blockAssets.push({ title: bd.label, svgEl, blockHeight });
+        const linesAbove = Math.max(0, Math.ceil((ln.highestMidi - 77) / 2));
+        const linesBelow = Math.max(0, Math.ceil((64 - ln.lowestMidi) / 2));
+        const topSpace = Math.max(24, 16 + linesAbove * 14);
+        const bottomSpace = Math.max(28, 20 + linesBelow * 14);
+        const innerHeight = topSpace + 50 + bottomSpace;
+        const physHeight = Math.ceil(innerHeight * SCALE);
+
+        // Ancho interno = ancho físico A4 / escala
+        const innerWidth = usableW / SCALE;
+
+        const sysDiv = document.createElement('div');
+        sysDiv.style.cssText = 'width:' + usableW + 'px; height:' + physHeight + 'px; background:#ffffff;';
+        renderBox.appendChild(sysDiv);
+
+        const renderer = new VF.Renderer(sysDiv, VF.Renderer.Backends.SVG);
+        renderer.resize(usableW, physHeight);
+        const ctx = renderer.getContext();
+
+        const keySigRoot = (useKeySig && isFirstLine) ? bd.root : null;
+
+        drawMeasuresOnContext(VF, ctx, ln.measures, {
+          startX: 5, startY: topSpace, totalWidth: innerWidth - 10,
+          beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
+          firstMeasureHasClef: true,
+          firstMeasureHasKeySig: !!keySigRoot,
+          firstMeasureHasTimeSig: isFirstLine,
+          keySigRoot,
+          scale: SCALE,
+        });
+
+        const svgEl = sysDiv.querySelector('svg');
+        if (!svgEl) throw new Error('SVG no generado para ' + bd.label + ' línea ' + (li+1));
+        svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svgEl.setAttribute('width', String(usableW));
+        svgEl.setAttribute('height', String(physHeight));
+
+        blockAssets.push({
+          title: isFirstLine ? bd.label : null,
+          svgEl,
+          blockHeight: physHeight,
+        });
+      }
     }
 
     // Esperar layout y fuentes
@@ -1459,13 +1569,11 @@ async function generatePdfSvg(VF) {
       try { await document.fonts.ready; } catch(e) {}
     }
 
-    // Convertir SVGs a PNG
     for (const a of blockAssets) {
       const svgString = new XMLSerializer().serializeToString(a.svgEl);
       a.imgData = await svgToPngDataUrl(svgString, usableW, a.blockHeight);
     }
 
-    // Construir PDF
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
 
@@ -1474,30 +1582,35 @@ async function generatePdfSvg(VF) {
     pdf.text(title, pageW / 2, 42, { align: 'center' });
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(12);
-    pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 62, { align: 'center' });
+    pdf.text('Tempo = ' + tempo + '   -   ' + timesig, pageW / 2, 62, { align: 'center' });
 
     let y = marginTop;
-    const titleH = 16;   // espacio para el título del bloque
-    const blockGap = 10;
+    const titleH = 14;
+    const blockGap = 20;
+    const lineGap = 6; // separación entre líneas del mismo bloque
 
     for (const a of blockAssets) {
-      const totalBlockH = titleH + a.blockHeight;
+      const headerH = a.title ? titleH : 0;
+      const totalBlockH = headerH + a.blockHeight;
       if (y + totalBlockH > pageH - marginBottom) {
         pdf.addPage();
         y = marginTop - 30;
       }
-      // Título del bloque
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(11);
-      pdf.setTextColor(60);
-      pdf.text(a.title, marginX + 4, y + 10);
-      pdf.setTextColor(0);
-      // Imagen
-      pdf.addImage(a.imgData, 'PNG', marginX, y + titleH, usableW, a.blockHeight);
-      y += totalBlockH + blockGap;
+      if (a.title) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(100);
+        pdf.text(a.title.toUpperCase(), marginX + 6, y + 9);
+        pdf.setTextColor(0);
+      }
+      pdf.addImage(a.imgData, 'PNG', marginX, y + headerH, usableW, a.blockHeight);
+      // Si es última línea del bloque (próxima tiene título), usar blockGap
+      // Si no, usar lineGap para que las líneas del mismo bloque queden juntas
+      const nextAsset = blockAssets[blockAssets.indexOf(a) + 1];
+      const gap = (nextAsset && nextAsset.title) ? blockGap : lineGap;
+      y += totalBlockH + gap;
     }
 
-    // Pie de página
     const total = pdf.internal.getNumberOfPages();
     for (let p = 1; p <= total; p++) {
       pdf.setPage(p);
@@ -1574,4 +1687,4 @@ window.addEventListener('error', (e) => {
 </script>
 
 </body>
-</html> 
+</html>
