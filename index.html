@@ -222,6 +222,16 @@
     margin-top: 4px;
   }
 
+  .score-block-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 2px;
+    padding-left: 4px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  body.night .score-block-title { color: #555; }
+
   .bottom {
     display: flex;
     flex-wrap: wrap;
@@ -627,140 +637,81 @@ function durationTicks(d) {
 }
 
 /* ============== CONSTRUIR COMPASES ==============
-   Enfoque en dos pasos para eliminar descuadres:
-   1) Generar una lista plana de eventos (notas o silencios), cada
-      uno con su duración en ticks (unidad = semicorchea). Entre bloques
-      se insertan silencios para que cada bloque empiece en compás nuevo.
-   2) Rebanar la lista en compases de tamaño exacto (ticksPerMeasure).
-      Si una figura no cabe entera, se parte en dos silencios/notas
-      equivalentes — pero como todas nuestras figuras (q, 8, 16) son
-      divisores exactos de 16, esto nunca pasa en la práctica. */
+   Ahora devolvemos los compases AGRUPADOS POR BLOQUE. Cada bloque es
+   una unidad independiente con sus propios compases. Esto elimina
+   interacciones entre bloques (armaduras, accidentales, etc.) y permite
+   dibujar cada bloque en su propio sistema. */
 function buildMeasures() {
   const timesig = document.getElementById('timesig').value;
   const rangeMin = noteToMidi(document.getElementById('rangeMin').value) || noteToMidi('F#3');
   const rangeMax = noteToMidi(document.getElementById('rangeMax').value) || noteToMidi('A5');
 
   const [beatsPerMeasure, beatValue] = timesig.split('/').map(Number);
-  const ticksPerMeasure = beatsPerMeasure * (16 / beatValue); // entero
+  const ticksPerMeasure = beatsPerMeasure * (16 / beatValue);
 
-  // --- PASO 1: lista plana de eventos ---
-  const events = []; // { type:'note'|'rest', midi?, preferFlats?, dur, ticks, blockIndex? }
-
-  const addNote = (midi, preferFlats, dur, blockIndex) => {
-    events.push({ type:'note', midi, preferFlats, dur, ticks: durationTicks(dur), blockIndex });
-  };
-  const addRests = (ticksNeeded) => {
-    // Descomponer en silencios de negra/corchea/semicorchea
-    let rem = ticksNeeded;
-    while (rem >= 4) { events.push({ type:'rest', dur:'qr', ticks:4 }); rem -= 4; }
-    while (rem >= 2) { events.push({ type:'rest', dur:'8r', ticks:2 }); rem -= 2; }
-    while (rem >= 1) { events.push({ type:'rest', dur:'16r', ticks:1 }); rem -= 1; }
-  };
-
-  // Lleva la cuenta de ticks acumulados para saber cuándo cerrar compases
-  let accTicks = 0;
-
-  state.blocks.forEach((block, blockIndex) => {
+  // Para cada bloque, construimos su secuencia de notas y la partimos
+  // en compases que suman exactamente ticksPerMeasure.
+  const blocksData = state.blocks.map((block, blockIndex) => {
     const midis = buildBlockNotes(block, rangeMin, rangeMax);
     const preferFlats = prefersFlats(block.root);
+    const noteTicks = durationTicks(block.duration);
 
-    // Marcar el índice del primer evento de este bloque (para etiquetas encima)
-    block._firstEventIdx = events.length;
+    // Lista plana de eventos de este bloque
+    const events = midis.map(midi => ({
+      type: 'note', midi, preferFlats, dur: block.duration, ticks: noteTicks,
+    }));
 
-    for (const midi of midis) {
-      addNote(midi, preferFlats, block.duration, blockIndex);
-      accTicks += durationTicks(block.duration);
-    }
-
-    // Cerrar compás actual con silencios antes de empezar el siguiente bloque
-    const remainder = accTicks % ticksPerMeasure;
+    // Rellenar con silencios hasta completar el último compás del bloque
+    const totalTicks = events.reduce((a, e) => a + e.ticks, 0);
+    const remainder = totalTicks % ticksPerMeasure;
     if (remainder !== 0) {
-      const padding = ticksPerMeasure - remainder;
-      addRests(padding);
-      accTicks += padding;
+      let pad = ticksPerMeasure - remainder;
+      while (pad >= 4) { events.push({ type:'rest', dur:'qr', ticks:4 }); pad -= 4; }
+      while (pad >= 2) { events.push({ type:'rest', dur:'8r', ticks:2 }); pad -= 2; }
+      while (pad >= 1) { events.push({ type:'rest', dur:'16r', ticks:1 }); pad -= 1; }
     }
+
+    // Rebanar en compases exactos
+    const measures = [];
+    let current = { notes: [], ticks: 0 };
+    for (const ev of events) {
+      current.notes.push(ev);
+      current.ticks += ev.ticks;
+      if (current.ticks === ticksPerMeasure) {
+        measures.push(current);
+        current = { notes: [], ticks: 0 };
+      }
+    }
+    // Si hubiera algo colgando (no debería), cerrarlo
+    if (current.notes.length) {
+      let rem = ticksPerMeasure - current.ticks;
+      while (rem >= 4) { current.notes.push({ type:'rest', dur:'qr', ticks:4 }); rem -= 4; }
+      while (rem >= 2) { current.notes.push({ type:'rest', dur:'8r', ticks:2 }); rem -= 2; }
+      while (rem >= 1) { current.notes.push({ type:'rest', dur:'16r', ticks:1 }); rem -= 1; }
+      current.ticks = ticksPerMeasure;
+      measures.push(current);
+    }
+
+    // Calcular rango de notas de este bloque (para altura del stave)
+    let lowestMidi = 999, highestMidi = -999;
+    measures.forEach(m => m.notes.forEach(n => {
+      if (n.type === 'note') {
+        if (n.midi < lowestMidi) lowestMidi = n.midi;
+        if (n.midi > highestMidi) highestMidi = n.midi;
+      }
+    }));
+
+    return {
+      blockIndex,
+      label: block.root + ' ' + block.scale,
+      root: block.root,
+      measures,
+      lowestMidi: lowestMidi === 999 ? 72 : lowestMidi,
+      highestMidi: highestMidi === -999 ? 72 : highestMidi,
+    };
   });
 
-  // --- PASO 2: rebanar en compases exactos ---
-  const measures = [];
-  let currentNotes = [];
-  let currentTicks = 0;
-
-  for (const ev of events) {
-    // Si la figura no cabe entera en el compás actual, hay que partirla.
-    // Con figuras q/8/16 en compases con ticksPerMeasure múltiplo de 4/2/1,
-    // esto en la práctica no ocurre si addRests genera figuras compatibles.
-    // Pero por seguridad, si ocurriera con un silencio, lo partimos.
-    if (currentTicks + ev.ticks > ticksPerMeasure) {
-      // Parte que cabe
-      const fits = ticksPerMeasure - currentTicks;
-      if (ev.type === 'rest') {
-        // Rellenar lo que queda con silencios más pequeños
-        let rem = fits;
-        while (rem >= 4) { currentNotes.push({ type:'rest', dur:'qr', ticks:4 }); rem -= 4; }
-        while (rem >= 2) { currentNotes.push({ type:'rest', dur:'8r', ticks:2 }); rem -= 2; }
-        while (rem >= 1) { currentNotes.push({ type:'rest', dur:'16r', ticks:1 }); rem -= 1; }
-      } else {
-        // Nota: no debería pasar. Si pasa, la descartamos con warning.
-        console.warn('Nota no cabe en compás, descartada:', ev);
-      }
-      measures.push({ notes: currentNotes, ticks: ticksPerMeasure });
-      currentNotes = [];
-      currentTicks = 0;
-      // Parte restante del evento
-      let leftover = ev.ticks - fits;
-      if (ev.type === 'rest' && leftover > 0) {
-        let rem = leftover;
-        while (rem >= 4) { currentNotes.push({ type:'rest', dur:'qr', ticks:4 }); rem -= 4; currentTicks += 4; }
-        while (rem >= 2) { currentNotes.push({ type:'rest', dur:'8r', ticks:2 }); rem -= 2; currentTicks += 2; }
-        while (rem >= 1) { currentNotes.push({ type:'rest', dur:'16r', ticks:1 }); rem -= 1; currentTicks += 1; }
-      }
-    } else {
-      currentNotes.push(ev);
-      currentTicks += ev.ticks;
-      if (currentTicks === ticksPerMeasure) {
-        measures.push({ notes: currentNotes, ticks: ticksPerMeasure });
-        currentNotes = [];
-        currentTicks = 0;
-      }
-    }
-  }
-  // Si queda algo abierto (no debería), cerrar
-  if (currentNotes.length > 0) {
-    const rem = ticksPerMeasure - currentTicks;
-    if (rem > 0) {
-      let r = rem;
-      while (r >= 4) { currentNotes.push({ type:'rest', dur:'qr', ticks:4 }); r -= 4; }
-      while (r >= 2) { currentNotes.push({ type:'rest', dur:'8r', ticks:2 }); r -= 2; }
-      while (r >= 1) { currentNotes.push({ type:'rest', dur:'16r', ticks:1 }); r -= 1; }
-    }
-    measures.push({ notes: currentNotes, ticks: ticksPerMeasure });
-  }
-
-  // --- Marcar qué compás es el inicio de cada bloque ---
-  // Recorremos el stream de nuevo para saber en qué compás cae el primer
-  // evento de cada bloque.
-  const blockStartMeasure = {}; // blockIndex -> measure index
-  {
-    let mi = 0, mt = 0;
-    let ei = 0;
-    for (const ev of events) {
-      // Determinar blockIndex si es el primer evento de un bloque
-      state.blocks.forEach((b, bi) => {
-        if (b._firstEventIdx === ei && !(bi in blockStartMeasure)) {
-          blockStartMeasure[bi] = mi;
-        }
-      });
-      mt += ev.ticks;
-      if (mt >= ticksPerMeasure) {
-        mt -= ticksPerMeasure;
-        mi++;
-      }
-      ei++;
-    }
-  }
-
-  return { measures, beatsPerMeasure, beatValue, ticksPerMeasure, timesig, blockStartMeasure };
+  return { blocksData, beatsPerMeasure, beatValue, ticksPerMeasure, timesig };
 }
 
 /* ============== ESTADO ============== */
@@ -871,41 +822,30 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
     firstMeasureHasClef, firstMeasureHasKeySig, firstMeasureHasTimeSig,
     keySigRoot,
-    measureIndexOffset = 0,
-    blockStartMeasure = {},
-    blockLabels = {},
   } = opts;
 
-  // ---- VALIDACIÓN: cada compás debe sumar exactamente ticksPerMeasure ----
-  // Si no, lo reporto pero NO intento corregir en tiempo de render.
+  // Validación: cada compás debe sumar exactamente ticksPerMeasure.
   measures.forEach((m, i) => {
     const sum = m.notes.reduce((a, n) => a + (n.ticks || 0), 0);
     if (sum !== ticksPerMeasure) {
-      console.warn('Compás', i, 'suma', sum, '!=', ticksPerMeasure, 'ticks. Notas:', m.notes);
+      console.warn('Compás', i, 'suma', sum, '!=', ticksPerMeasure);
     }
   });
 
-  // ---- Crear staves + voces ----
   const firstExtra = (firstMeasureHasClef ? 40 : 0)
                    + (firstMeasureHasKeySig ? 30 : 0)
                    + (firstMeasureHasTimeSig ? 30 : 0);
 
-  const mapToBlock = {};
-  Object.keys(blockStartMeasure).forEach(bi => {
-    mapToBlock[blockStartMeasure[bi]] = parseInt(bi, 10);
-  });
-
-  // Convertir los eventos de cada compás en StaveNote
-  const voicesPerMeasure = [];
+  // Crear StaveNote por compás
   const vexNotesPerMeasure = [];
+  const voicesPerMeasure = [];
 
-  measures.forEach((measure, mi) => {
+  measures.forEach((measure) => {
     const vexNotes = [];
     measure.notes.forEach(n => {
       try {
         if (n.type === 'rest') {
-          const rn = new VF.StaveNote({ keys: ['b/4'], duration: n.dur, clef: 'treble' });
-          vexNotes.push(rn);
+          vexNotes.push(new VF.StaveNote({ keys: ['b/4'], duration: n.dur, clef: 'treble' }));
         } else {
           const key = midiToVexKey(n.midi, n.preferFlats);
           const sn = new VF.StaveNote({ keys: [key], duration: n.dur, clef: 'treble', auto_stem: true });
@@ -920,9 +860,6 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     const voice = new VF.Voice({ num_beats: beatsPerMeasure, beat_value: beatValue });
     try {
       if (VF.Voice.Mode && VF.Voice.Mode.SOFT !== undefined) {
-        // Usamos SOFT a propósito: si alguna figura rara dejara un hueco,
-        // SOFT lo tolera y rellena visualmente. Nuestras notas ya suman
-        // el compás exacto, así que SOFT no estira nada.
         voice.setMode(VF.Voice.Mode.SOFT);
       }
     } catch(e) {}
@@ -930,55 +867,20 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     voicesPerMeasure.push(voice);
   });
 
-  // ---- Calcular anchos de compases usando las métricas de VexFlow ----
-  // Dejamos que el Formatter calcule el ancho mínimo que necesita cada compás
-  // según su contenido (notas, accidentales, beams, etc.) y luego
-  // distribuimos el espacio sobrante proporcionalmente.
-  const formatter = new VF.Formatter();
-  formatter.joinVoices(voicesPerMeasure);
-
-  // Ancho mínimo que el formatter pide para TODO el sistema
-  let minTotalWidth = 0;
-  try {
-    if (typeof formatter.preCalculateMinTotalWidth === 'function') {
-      minTotalWidth = formatter.preCalculateMinTotalWidth(voicesPerMeasure);
-    }
-  } catch(e) { minTotalWidth = 0; }
-
-  // Ancho disponible para notas (sin el espacio de clef/time/key del primer compás)
-  const availableForNotes = Math.max(minTotalWidth, totalWidth - firstExtra - 10);
-
-  // Distribución: repartir availableForNotes proporcionalmente al ancho mínimo
-  // que cada compás necesita. Si sólo hay un compás, le toca todo.
-  const perMeasureMinWidths = voicesPerMeasure.map(v => {
-    // Estimación: ancho mínimo propio de cada voz. VexFlow no expone esto
-    // directamente por voz tras joinVoices, así que usamos el número de
-    // tickables * un factor como fallback.
-    return Math.max(90, v.getTickables().length * 24);
-  });
-  const sumMin = perMeasureMinWidths.reduce((a,b) => a+b, 0) || 1;
-  const measureWidths = perMeasureMinWidths.map(w =>
-    Math.floor(availableForNotes * (w / sumMin))
+  // Repartir anchos proporcionales al número de notas de cada compás
+  const notesInEach = measures.map(m => Math.max(1, m.notes.length));
+  const totalNotes = notesInEach.reduce((a,b) => a+b, 0) || 1;
+  const availForNotes = Math.max(200, totalWidth - firstExtra - 10);
+  const measureWidths = notesInEach.map(n =>
+    Math.max(90, Math.floor(availForNotes * (n / totalNotes)))
   );
 
-  // ---- Dibujar staves ----
+  // Crear staves
   let x = startX;
   const staves = [];
-  const measurePositions = [];
   measures.forEach((measure, mi) => {
-    const globalMi = mi + measureIndexOffset;
     const extra = (mi === 0) ? firstExtra : 0;
     const mw = measureWidths[mi] + extra;
-
-    const staveStartX = x;
-    const notesStartX = x + extra;
-
-    measurePositions.push({
-      x: staveStartX,
-      notesX: notesStartX,
-      blockIndex: mapToBlock[globalMi],
-    });
-
     const stave = new VF.Stave(x, startY, mw);
     if (mi === 0) {
       if (firstMeasureHasClef) stave.addClef('treble');
@@ -989,29 +891,21 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     }
     stave.setContext(ctx).draw();
     staves.push(stave);
-
     x += mw;
   });
 
-  // ---- Formatear TODAS las voces juntas y dibujar ----
+  // Formatear cada voz para su stave y dibujar con beams
   try {
-    // formatToStave formatea cada voz para su stave correspondiente.
-    // Esto es lo que evita solapamientos: VexFlow conoce el ancho real
-    // de cada stave y posiciona las notas dentro de él.
     voicesPerMeasure.forEach((voice, mi) => {
-      const formatter2 = new VF.Formatter();
-      formatter2.joinVoices([voice]);
-      formatter2.formatToStave([voice], staves[mi]);
+      const formatter = new VF.Formatter();
+      formatter.joinVoices([voice]);
+      formatter.formatToStave([voice], staves[mi]);
     });
 
     voicesPerMeasure.forEach((voice, mi) => {
       const nonRests = vexNotesPerMeasure[mi].filter(vn => {
         try { return !(vn.isRest && vn.isRest()); } catch(e) { return true; }
       });
-
-      // IMPORTANTE: crear los beams ANTES de dibujar la voz.
-      // Al existir el Beam, las StaveNote que forman parte de él
-      // suprimen su bandera individual y sólo se pinta la barra del beam.
       let beams = [];
       try {
         beams = VF.Beam.generateBeams(nonRests, {
@@ -1019,36 +913,12 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
           maintain_stem_directions: false,
         });
       } catch(e) { beams = []; }
-
-      // Ahora sí, dibujar notas y después los beams encima.
       voice.draw(ctx, staves[mi]);
       beams.forEach(b => { try { b.setContext(ctx).draw(); } catch(e) {} });
     });
   } catch(e) {
-    console.error('Error al formatear sistema:', e);
+    console.error('Error al formatear:', e);
   }
-
-  // ---- Etiquetas de bloque encima del pentagrama ----
-  try {
-    const svg = ctx.svg;
-    if (svg) {
-      const ns = 'http://www.w3.org/2000/svg';
-      measurePositions.forEach(pos => {
-        if (pos.blockIndex == null) return;
-        const label = blockLabels[pos.blockIndex];
-        if (!label) return;
-        const text = document.createElementNS(ns, 'text');
-        text.setAttribute('x', pos.notesX);
-        text.setAttribute('y', startY - 6);
-        text.setAttribute('font-family', 'Arial, sans-serif');
-        text.setAttribute('font-size', '12');
-        text.setAttribute('font-weight', 'bold');
-        text.setAttribute('fill', '#000');
-        text.textContent = label;
-        svg.appendChild(text);
-      });
-    }
-  } catch(e) { console.warn('Etiquetas:', e); }
 }
 
 function showError(msg) {
@@ -1084,64 +954,63 @@ function renderScore() {
 
   try {
     const built = buildMeasures();
-    const { measures, beatsPerMeasure, beatValue, timesig, ticksPerMeasure, blockStartMeasure } = built;
-    if (!measures.length) {
+    const { blocksData, beatsPerMeasure, beatValue, timesig, ticksPerMeasure } = built;
+    if (!blocksData.length) {
       mount.innerHTML = '<p style="text-align:center;color:#888;padding:30px 0;">Sin notas</p>';
       return;
     }
 
     const useKeySig = document.getElementById('useKeySig').checked;
-    const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
 
-    const blockLabels = {};
-    state.blocks.forEach((b, i) => {
-      blockLabels[i] = b.root + ' ' + b.scale;
+    // Ancho del SVG: el contenedor disponible, o mínimo para leer bien
+    // En móvil el contenedor suele ser ~350px. Forzamos un mínimo cómodo.
+    const mountWidth = mount.parentElement.clientWidth - 20;
+    const svgWidth = Math.max(600, mountWidth); // 600 mínimo, se hace scroll si no cabe
+
+    // Renderizar cada bloque como un SVG independiente apilado verticalmente
+    blocksData.forEach((bd) => {
+      // Altura según notas graves/agudas del bloque
+      const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
+      const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
+      const topSpace = Math.max(20, 10 + linesAbove * 10);
+      const bottomSpace = Math.max(20, linesBelow * 10 + 10);
+      const staveHeight = 50;
+      const blockHeight = topSpace + staveHeight + bottomSpace + 20;
+
+      // Contenedor del bloque con título arriba
+      const blockWrap = document.createElement('div');
+      blockWrap.className = 'score-block';
+      blockWrap.style.cssText = 'margin-bottom: 18px;';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'score-block-title';
+      titleEl.textContent = bd.label;
+      blockWrap.appendChild(titleEl);
+
+      const svgMount = document.createElement('div');
+      svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent;';
+      blockWrap.appendChild(svgMount);
+
+      mount.appendChild(blockWrap);
+
+      // Dibujar este bloque
+      const renderer = new VF.Renderer(svgMount, VF.Renderer.Backends.SVG);
+      renderer.resize(svgWidth, blockHeight);
+      const ctx = renderer.getContext();
+
+      const keySigRoot = useKeySig ? bd.root : null;
+
+      drawMeasuresOnContext(VF, ctx, bd.measures, {
+        startX: 5, startY: topSpace, totalWidth: svgWidth - 10,
+        beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
+        firstMeasureHasClef: true,
+        firstMeasureHasKeySig: !!keySigRoot,
+        firstMeasureHasTimeSig: true,
+        keySigRoot,
+      });
     });
 
-    // Calcular la nota más baja y más alta de todo el ejercicio
-    // para saber cuánto espacio extra dejar arriba y abajo del pentagrama.
-    let lowestMidi = 999, highestMidi = -999;
-    measures.forEach(m => m.notes.forEach(n => {
-      if (n.type === 'note') {
-        if (n.midi < lowestMidi) lowestMidi = n.midi;
-        if (n.midi > highestMidi) highestMidi = n.midi;
-      }
-    }));
-    // Líneas adicionales aproximadas por encima/debajo del pentagrama:
-    // F5 (línea superior del pentagrama en clave de sol) = midi 77
-    // E4 (línea inferior) = midi 64
-    const midiLinesAbove = Math.max(0, Math.ceil((highestMidi - 77) / 2));
-    const midiLinesBelow = Math.max(0, Math.ceil((64 - lowestMidi) / 2));
-    // Espacio por línea: 10px (antes 6, poco para notas como F#3 o D3)
-    // topSpace mínimo 32 para las etiquetas
-    const topSpace = Math.max(32, 18 + midiLinesAbove * 10);
-    const bottomSpace = Math.max(20, midiLinesBelow * 10 + 10);
-
-    const widthPerNote = 32;
-    const firstExtra = 110;
-    let totalWidth = firstExtra + 20;
-    measures.forEach(m => { totalWidth += Math.max(100, m.notes.length * widthPerNote + 20); });
-    totalWidth = Math.max(totalWidth, 400);
-
-    const staveHeight = 50; // altura del pentagrama en sí
-    const height = topSpace + staveHeight + bottomSpace + 20;
-    mount.style.width = totalWidth + 'px';
-
-    const renderer = new VF.Renderer(mount, VF.Renderer.Backends.SVG);
-    renderer.resize(totalWidth, height);
-    const ctx = renderer.getContext();
-
-    drawMeasuresOnContext(VF, ctx, measures, {
-      startX: 10, startY: topSpace, totalWidth: totalWidth - 20,
-      beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
-      firstMeasureHasClef: true,
-      firstMeasureHasKeySig: !!keySigRoot,
-      firstMeasureHasTimeSig: true,
-      keySigRoot,
-      measureIndexOffset: 0,
-      blockStartMeasure,
-      blockLabels,
-    });
+    mount.style.width = svgWidth + 'px';
   } catch (err) {
     console.error(err);
     showError("Error al renderizar: " + err.message);
@@ -1326,8 +1195,7 @@ function exportViaPrint() {
   }, 300);
 }
 
-// Renderiza la partitura en varios sistemas apilados verticalmente,
-// pensado para imprimir en A4.
+// Versión orientada a A4: un bloque por línea, ancho A4 útil (~680px)
 function renderScoreMultiSystem() {
   hideError();
   const mount = document.getElementById('score');
@@ -1339,70 +1207,52 @@ function renderScoreMultiSystem() {
   if (state.blocks.length === 0) return;
 
   const built = buildMeasures();
-  const { measures, beatsPerMeasure, beatValue, timesig, ticksPerMeasure, blockStartMeasure } = built;
-  if (!measures.length) return;
+  const { blocksData, beatsPerMeasure, beatValue, timesig, ticksPerMeasure } = built;
+  if (!blocksData.length) return;
 
   const useKeySig = document.getElementById('useKeySig').checked;
-  const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
-  const blockLabels = {};
-  state.blocks.forEach((b, i) => { blockLabels[i] = b.root + ' ' + b.scale; });
+  const svgWidth = 680; // ancho A4 útil aprox
 
-  // Ancho A4 útil aprox en px (A4 = 210mm - márgenes 15mm x2 = 180mm ≈ 680px @96dpi)
-  const systemWidth = 680;
-  const notesWidth = 28;
-  const firstExtra = 110;
-
-  // Agrupar en sistemas
-  const systems = [];
-  let cur = { measures: [], estWidth: firstExtra, offset: 0 };
-  measures.forEach((m, idx) => {
-    const mw = Math.max(100, m.notes.length * notesWidth + 20);
-    if (cur.estWidth + mw > systemWidth && cur.measures.length) {
-      systems.push(cur);
-      cur = { measures: [], estWidth: 0, offset: idx };
-    }
-    cur.measures.push(m);
-    cur.estWidth += mw;
-  });
-  if (cur.measures.length) systems.push(cur);
-
-  // Render de cada sistema en su propio SVG dentro del mount
-  systems.forEach((sys, si) => {
-    let lowestMidi = 999, highestMidi = -999;
-    sys.measures.forEach(m => m.notes.forEach(n => {
-      if (n.type === 'note') {
-        if (n.midi < lowestMidi) lowestMidi = n.midi;
-        if (n.midi > highestMidi) highestMidi = n.midi;
-      }
-    }));
-    const linesAbove = Math.max(0, Math.ceil((highestMidi - 77) / 2));
-    const linesBelow = Math.max(0, Math.ceil((64 - lowestMidi) / 2));
-    const topSpace = Math.max(32, 18 + linesAbove * 10);
+  blocksData.forEach((bd) => {
+    const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
+    const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
+    const topSpace = Math.max(20, 10 + linesAbove * 10);
     const bottomSpace = Math.max(20, linesBelow * 10 + 10);
-    const systemHeight = topSpace + 50 + bottomSpace + 10;
+    const staveHeight = 50;
+    const blockHeight = topSpace + staveHeight + bottomSpace + 20;
 
-    const sysDiv = document.createElement('div');
-    sysDiv.style.cssText = 'width:' + systemWidth + 'px; height:' + systemHeight + 'px; margin-bottom: 15px; background:#fff;';
-    mount.appendChild(sysDiv);
+    const blockWrap = document.createElement('div');
+    blockWrap.className = 'score-block';
+    blockWrap.style.cssText = 'margin-bottom: 12px;';
 
-    const renderer = new VF.Renderer(sysDiv, VF.Renderer.Backends.SVG);
-    renderer.resize(systemWidth, systemHeight);
+    const titleEl = document.createElement('div');
+    titleEl.className = 'score-block-title';
+    titleEl.textContent = bd.label;
+    blockWrap.appendChild(titleEl);
+
+    const svgMount = document.createElement('div');
+    svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent;';
+    blockWrap.appendChild(svgMount);
+
+    mount.appendChild(blockWrap);
+
+    const renderer = new VF.Renderer(svgMount, VF.Renderer.Backends.SVG);
+    renderer.resize(svgWidth, blockHeight);
     const ctx = renderer.getContext();
 
-    drawMeasuresOnContext(VF, ctx, sys.measures, {
-      startX: 0, startY: topSpace, totalWidth: systemWidth,
+    const keySigRoot = useKeySig ? bd.root : null;
+
+    drawMeasuresOnContext(VF, ctx, bd.measures, {
+      startX: 5, startY: topSpace, totalWidth: svgWidth - 10,
       beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
       firstMeasureHasClef: true,
-      firstMeasureHasKeySig: si === 0 && !!keySigRoot,
-      firstMeasureHasTimeSig: si === 0,
-      keySigRoot: si === 0 ? keySigRoot : null,
-      measureIndexOffset: sys.offset,
-      blockStartMeasure,
-      blockLabels,
+      firstMeasureHasKeySig: !!keySigRoot,
+      firstMeasureHasTimeSig: true,
+      keySigRoot,
     });
   });
 
-  mount.style.width = systemWidth + 'px';
+  mount.style.width = svgWidth + 'px';
 }
 
 // OPCIÓN 2: html2canvas + jsPDF
@@ -1544,118 +1394,67 @@ async function generatePdfSvg(VF) {
   const useKeySig = document.getElementById('useKeySig').checked;
 
   const built = buildMeasures();
-  const { measures, beatsPerMeasure, beatValue, timesig, ticksPerMeasure, blockStartMeasure } = built;
-  if (!measures.length) throw new Error('Sin compases para exportar');
+  const { blocksData, beatsPerMeasure, beatValue, timesig, ticksPerMeasure } = built;
+  if (!blocksData.length) throw new Error('Sin bloques para exportar');
 
-  const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
-  const blockLabels = {};
-  state.blocks.forEach((b, i) => { blockLabels[i] = b.root + ' ' + b.scale; });
-
-  // ---- Dividir los compases en sistemas que quepan en el ancho A4 ----
-  const notesWidth = 28;
-  const firstExtra = 110;
-  const systems = [];
-  let cur = { measures: [], estWidth: firstExtra, offset: 0 };
-  measures.forEach((m, idx) => {
-    const mw = Math.max(100, m.notes.length * notesWidth + 20);
-    if (cur.estWidth + mw > usableW && cur.measures.length) {
-      systems.push(cur);
-      cur = { measures: [], estWidth: 0, offset: idx };
-    }
-    cur.measures.push(m);
-    cur.estWidth += mw;
-  });
-  if (cur.measures.length) systems.push(cur);
-
-  // ---- Calcular alturas de cada sistema según rango de notas ----
-  const systemLayouts = systems.map(sys => {
-    let lowestMidi = 999, highestMidi = -999;
-    sys.measures.forEach(m => m.notes.forEach(n => {
-      if (n.type === 'note') {
-        if (n.midi < lowestMidi) lowestMidi = n.midi;
-        if (n.midi > highestMidi) highestMidi = n.midi;
-      }
-    }));
-    const linesAbove = Math.max(0, Math.ceil((highestMidi - 77) / 2));
-    const linesBelow = Math.max(0, Math.ceil((64 - lowestMidi) / 2));
-    const topSpace = Math.max(32, 18 + linesAbove * 10);
-    const bottomSpace = Math.max(20, linesBelow * 10 + 10);
-    const systemHeight = topSpace + 50 + bottomSpace + 10;
-    return { sys, topSpace, systemHeight };
-  });
-
-  // ---- Crear un div VISIBLE (pero oculto por opacidad) para renderizar ----
-  // Clave: el div está en el flujo del DOM, layouteado por el navegador,
-  // con las fuentes cargadas. Solo su opacidad es 0 para no molestar.
+  // Div visible pero transparente para renderizar con layout real
   const renderBox = document.createElement('div');
-  renderBox.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: ${usableW}px;
-    background: #ffffff;
-    z-index: -1;
-    opacity: 0;
-    pointer-events: none;
-    padding: 0;
-    margin: 0;
-  `;
+  renderBox.style.cssText =
+    'position: fixed; top: 0; left: 0; width: ' + usableW + 'px; ' +
+    'background: #ffffff; z-index: -1; opacity: 0; pointer-events: none;';
   document.body.appendChild(renderBox);
 
   try {
-    // Renderizar cada sistema en su propio SVG dentro del renderBox
-    const systemSvgs = [];
+    const blockAssets = []; // { title, imgData, imgHeight }
 
-    for (let si = 0; si < systemLayouts.length; si++) {
-      const { sys, topSpace, systemHeight } = systemLayouts[si];
+    for (const bd of blocksData) {
+      const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
+      const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
+      const topSpace = Math.max(20, 10 + linesAbove * 10);
+      const bottomSpace = Math.max(20, linesBelow * 10 + 10);
+      const blockHeight = topSpace + 50 + bottomSpace + 20;
 
-      const systemDiv = document.createElement('div');
-      systemDiv.style.cssText = `width: ${usableW}px; height: ${systemHeight}px; background: #ffffff;`;
-      renderBox.appendChild(systemDiv);
+      const sysDiv = document.createElement('div');
+      sysDiv.style.cssText = 'width:' + usableW + 'px; height:' + blockHeight + 'px; background:#ffffff;';
+      renderBox.appendChild(sysDiv);
 
-      const renderer = new VF.Renderer(systemDiv, VF.Renderer.Backends.SVG);
-      renderer.resize(usableW, systemHeight);
+      const renderer = new VF.Renderer(sysDiv, VF.Renderer.Backends.SVG);
+      renderer.resize(usableW, blockHeight);
       const ctx = renderer.getContext();
 
-      drawMeasuresOnContext(VF, ctx, sys.measures, {
-        startX: 0, startY: topSpace, totalWidth: usableW,
+      const keySigRoot = useKeySig ? bd.root : null;
+
+      drawMeasuresOnContext(VF, ctx, bd.measures, {
+        startX: 5, startY: topSpace, totalWidth: usableW - 10,
         beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
         firstMeasureHasClef: true,
-        firstMeasureHasKeySig: si === 0 && !!keySigRoot,
-        firstMeasureHasTimeSig: si === 0,
-        keySigRoot: si === 0 ? keySigRoot : null,
-        measureIndexOffset: sys.offset,
-        blockStartMeasure,
-        blockLabels,
+        firstMeasureHasKeySig: !!keySigRoot,
+        firstMeasureHasTimeSig: true,
+        keySigRoot,
       });
 
-      const svgEl = systemDiv.querySelector('svg');
-      if (!svgEl) throw new Error('SVG no generado en sistema ' + (si+1));
-
+      const svgEl = sysDiv.querySelector('svg');
+      if (!svgEl) throw new Error('SVG no generado para bloque ' + bd.label);
       svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       svgEl.setAttribute('width', String(usableW));
-      svgEl.setAttribute('height', String(systemHeight));
+      svgEl.setAttribute('height', String(blockHeight));
 
-      systemSvgs.push({ svgEl, systemHeight });
+      blockAssets.push({ title: bd.label, svgEl, blockHeight });
     }
 
-    // Esperar a que el navegador haga layout y carguen métricas de fuentes
+    // Esperar layout y fuentes
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-    // Asegurarse de que las fuentes están listas (si el navegador lo soporta)
     if (document.fonts && document.fonts.ready) {
       try { await document.fonts.ready; } catch(e) {}
     }
 
-    // ---- Convertir cada SVG a imagen PNG ahora que está bien layouteado ----
-    const systemImages = [];
-    for (const { svgEl, systemHeight } of systemSvgs) {
-      const svgString = new XMLSerializer().serializeToString(svgEl);
-      const imgData = await svgToPngDataUrl(svgString, usableW, systemHeight);
-      systemImages.push({ imgData, systemHeight });
+    // Convertir SVGs a PNG
+    for (const a of blockAssets) {
+      const svgString = new XMLSerializer().serializeToString(a.svgEl);
+      a.imgData = await svgToPngDataUrl(svgString, usableW, a.blockHeight);
     }
 
-    // ---- Construir el PDF con los sistemas apilados ----
+    // Construir PDF
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
 
@@ -1667,15 +1466,24 @@ async function generatePdfSvg(VF) {
     pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 62, { align: 'center' });
 
     let y = marginTop;
-    const systemGap = 15;
+    const titleH = 16;   // espacio para el título del bloque
+    const blockGap = 10;
 
-    for (const { imgData, systemHeight } of systemImages) {
-      if (y + systemHeight > pageH - marginBottom) {
+    for (const a of blockAssets) {
+      const totalBlockH = titleH + a.blockHeight;
+      if (y + totalBlockH > pageH - marginBottom) {
         pdf.addPage();
         y = marginTop - 30;
       }
-      pdf.addImage(imgData, 'PNG', marginX, y, usableW, systemHeight);
-      y += systemHeight + systemGap;
+      // Título del bloque
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.setTextColor(60);
+      pdf.text(a.title, marginX + 4, y + 10);
+      pdf.setTextColor(0);
+      // Imagen
+      pdf.addImage(a.imgData, 'PNG', marginX, y + titleH, usableW, a.blockHeight);
+      y += totalBlockH + blockGap;
     }
 
     // Pie de página
