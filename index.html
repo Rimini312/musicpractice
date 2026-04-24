@@ -10,6 +10,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
 <style>
   :root {
     --bg: #ffffff;
@@ -264,6 +266,61 @@
     .row { grid-template-columns: 1fr 1fr; }
     header h1 { font-size: 16px; }
   }
+
+  /* ============== IMPRESIÓN (PDF vía window.print) ============== */
+  @media print {
+    @page {
+      size: A4 portrait;
+      margin: 15mm;
+    }
+    body {
+      background: #ffffff !important;
+      color: #000000 !important;
+    }
+    body.night {
+      background: #ffffff !important;
+      color: #000000 !important;
+    }
+    /* Ocultar todo excepto el panel de partitura */
+    header, .panel:not(.print-only), .bottom, .toast, .score-hint, .error-box {
+      display: none !important;
+    }
+    .page {
+      max-width: 100%;
+      padding: 0;
+      margin: 0;
+    }
+    .panel.print-only {
+      border: none;
+      padding: 0;
+      margin: 0;
+      display: block !important;
+    }
+    .score-title {
+      font-size: 20px;
+      margin-bottom: 6px;
+    }
+    .score-tempo {
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .score-scroll {
+      overflow: visible !important;
+      border: none !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+      min-height: 0 !important;
+    }
+    /* El SVG de la partitura debe ser visible entero, sin scroll */
+    #score {
+      width: auto !important;
+      min-width: 0 !important;
+    }
+    #score svg {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+  }
 </style>
 
 </head>
@@ -375,7 +432,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel print-only">
     <div class="score-title" id="scoreTitle">Rutina del día</div>
     <div class="score-tempo" id="scoreTempo">♩ = 80</div>
     <div class="error-box" id="errorBox"></div>
@@ -394,7 +451,9 @@
       <button class="ghost small" id="importBtn">Imp. JSON</button>
     </div>
     <div class="group">
-      <button id="exportPdf">⬇ PDF A4</button>
+      <button id="exportPrint">🖨 PDF (imprimir)</button>
+      <button id="exportCanvas">📸 PDF (canvas)</button>
+      <button id="exportSvg" class="ghost">🔬 PDF (SVG)</button>
     </div>
   </div>
 
@@ -1244,25 +1303,238 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   fr.readAsText(f);
 });
 
-/* ============== EXPORTAR PDF ============== */
-document.getElementById('exportPdf').addEventListener('click', async () => {
+/* ============== EXPORTACIÓN PDF ============== */
+
+// OPCIÓN 1: Imprimir (el navegador convierte a PDF)
+// Antes de imprimir, re-renderizamos la partitura en MÚLTIPLES sistemas
+// apilados (tipo A4) en lugar de una línea con scroll. Tras imprimir,
+// volvemos al render normal.
+function exportViaPrint() {
+  if (!state.blocks.length) { toast('Añade bloques primero'); return; }
+  try {
+    renderScoreMultiSystem();
+  } catch(e) {
+    console.error(e);
+    showError('Error preparando impresión: ' + e.message);
+    return;
+  }
+  // Dar tiempo al navegador a hacer layout antes de abrir el diálogo
+  setTimeout(() => {
+    window.print();
+    // Tras cerrar el diálogo, restaurar el preview normal
+    setTimeout(() => { renderScore(); }, 500);
+  }, 300);
+}
+
+// Renderiza la partitura en varios sistemas apilados verticalmente,
+// pensado para imprimir en A4.
+function renderScoreMultiSystem() {
+  hideError();
+  const mount = document.getElementById('score');
+  mount.innerHTML = '';
+  mount.style.width = '';
+
+  const VF = getVF();
+  if (!VF) throw new Error('VexFlow no cargado');
+  if (state.blocks.length === 0) return;
+
+  const built = buildMeasures();
+  const { measures, beatsPerMeasure, beatValue, timesig, ticksPerMeasure, blockStartMeasure } = built;
+  if (!measures.length) return;
+
+  const useKeySig = document.getElementById('useKeySig').checked;
+  const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
+  const blockLabels = {};
+  state.blocks.forEach((b, i) => { blockLabels[i] = b.root + ' ' + b.scale; });
+
+  // Ancho A4 útil aprox en px (A4 = 210mm - márgenes 15mm x2 = 180mm ≈ 680px @96dpi)
+  const systemWidth = 680;
+  const notesWidth = 28;
+  const firstExtra = 110;
+
+  // Agrupar en sistemas
+  const systems = [];
+  let cur = { measures: [], estWidth: firstExtra, offset: 0 };
+  measures.forEach((m, idx) => {
+    const mw = Math.max(100, m.notes.length * notesWidth + 20);
+    if (cur.estWidth + mw > systemWidth && cur.measures.length) {
+      systems.push(cur);
+      cur = { measures: [], estWidth: 0, offset: idx };
+    }
+    cur.measures.push(m);
+    cur.estWidth += mw;
+  });
+  if (cur.measures.length) systems.push(cur);
+
+  // Render de cada sistema en su propio SVG dentro del mount
+  systems.forEach((sys, si) => {
+    let lowestMidi = 999, highestMidi = -999;
+    sys.measures.forEach(m => m.notes.forEach(n => {
+      if (n.type === 'note') {
+        if (n.midi < lowestMidi) lowestMidi = n.midi;
+        if (n.midi > highestMidi) highestMidi = n.midi;
+      }
+    }));
+    const linesAbove = Math.max(0, Math.ceil((highestMidi - 77) / 2));
+    const linesBelow = Math.max(0, Math.ceil((64 - lowestMidi) / 2));
+    const topSpace = Math.max(32, 18 + linesAbove * 10);
+    const bottomSpace = Math.max(20, linesBelow * 10 + 10);
+    const systemHeight = topSpace + 50 + bottomSpace + 10;
+
+    const sysDiv = document.createElement('div');
+    sysDiv.style.cssText = 'width:' + systemWidth + 'px; height:' + systemHeight + 'px; margin-bottom: 15px; background:#fff;';
+    mount.appendChild(sysDiv);
+
+    const renderer = new VF.Renderer(sysDiv, VF.Renderer.Backends.SVG);
+    renderer.resize(systemWidth, systemHeight);
+    const ctx = renderer.getContext();
+
+    drawMeasuresOnContext(VF, ctx, sys.measures, {
+      startX: 0, startY: topSpace, totalWidth: systemWidth,
+      beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
+      firstMeasureHasClef: true,
+      firstMeasureHasKeySig: si === 0 && !!keySigRoot,
+      firstMeasureHasTimeSig: si === 0,
+      keySigRoot: si === 0 ? keySigRoot : null,
+      measureIndexOffset: sys.offset,
+      blockStartMeasure,
+      blockLabels,
+    });
+  });
+
+  mount.style.width = systemWidth + 'px';
+}
+
+// OPCIÓN 2: html2canvas + jsPDF
+// Captura el DOM real ya renderizado (lo que tú ves en preview),
+// lo convierte a canvas y luego a PDF.
+async function exportViaCanvas() {
+  if (!state.blocks.length) { toast('Añade bloques primero'); return; }
+  if (!window.html2canvas) { toast('html2canvas no cargado'); return; }
+  if (!window.jspdf || !window.jspdf.jsPDF) { toast('jsPDF no disponible'); return; }
+
+  toast('Capturando partitura...');
+
+  // Primero re-renderizamos en múltiples sistemas para que tenga forma A4
+  try {
+    renderScoreMultiSystem();
+  } catch(e) {
+    showError('Error preparando canvas: ' + e.message);
+    return;
+  }
+
+  // Esperar un frame para que el DOM se asiente
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch(e) {}
+  }
+
+  const title = document.getElementById('title').value || 'Rutina';
+  const tempo = parseInt(document.getElementById('tempo').value) || 80;
+  const timesig = document.getElementById('timesig').value;
+
+  const scoreEl = document.getElementById('score');
+  if (!scoreEl) { toast('No se encuentra la partitura'); return; }
+
+  try {
+    const canvas = await html2canvas(scoreEl, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      logging: false,
+      useCORS: true,
+      allowTaint: true,
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const imgW = canvas.width;
+    const imgH = canvas.height;
+
+    const pageW = 794, pageH = 1123;
+    const marginX = 40, marginTop = 85, marginBottom = 50;
+    const usableW = pageW - marginX * 2;
+    const usableH = pageH - marginTop - marginBottom;
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(18);
+    pdf.text(title, pageW / 2, 42, { align: 'center' });
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(12);
+    pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 62, { align: 'center' });
+
+    const scaleFactor = usableW / imgW;
+    const scaledH = imgH * scaleFactor;
+
+    if (scaledH <= usableH) {
+      pdf.addImage(imgData, 'PNG', marginX, marginTop, usableW, scaledH);
+    } else {
+      const pageImgHeightPx = Math.floor(usableH / scaleFactor);
+      let offsetY = 0;
+      let firstPage = true;
+
+      while (offsetY < imgH) {
+        const sliceH = Math.min(pageImgHeightPx, imgH - offsetY);
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = imgW;
+        sliceCanvas.height = sliceH;
+        const sctx = sliceCanvas.getContext('2d');
+        sctx.fillStyle = '#ffffff';
+        sctx.fillRect(0, 0, imgW, sliceH);
+        sctx.drawImage(canvas, 0, offsetY, imgW, sliceH, 0, 0, imgW, sliceH);
+        const sliceData = sliceCanvas.toDataURL('image/png');
+
+        if (!firstPage) pdf.addPage();
+        const topY = firstPage ? marginTop : marginTop - 30;
+        pdf.addImage(sliceData, 'PNG', marginX, topY, usableW, sliceH * scaleFactor);
+
+        firstPage = false;
+        offsetY += sliceH;
+      }
+    }
+
+    const total = pdf.internal.getNumberOfPages();
+    for (let p = 1; p <= total; p++) {
+      pdf.setPage(p);
+      pdf.setFontSize(9);
+      pdf.setTextColor(120);
+      pdf.text(p + ' / ' + total, pageW / 2, pageH - 20, { align: 'center' });
+    }
+
+    pdf.save((title || 'rutina').replace(/\s+/g,'_') + '_canvas.pdf');
+    toast('PDF listo (canvas)');
+  } catch (err) {
+    console.error(err);
+    showError('Error canvas: ' + err.message);
+  } finally {
+    // Restaurar el preview normal
+    setTimeout(() => { renderScore(); }, 300);
+  }
+}
+
+// OPCIÓN 3: SVG → PNG → PDF (el método original)
+async function exportViaSvg() {
   if (!state.blocks.length) { toast('Añade bloques primero'); return; }
   const VF = getVF();
   if (!VF) { toast('Espera a que cargue la librería'); return; }
   if (!window.jspdf || !window.jspdf.jsPDF) { toast('jsPDF no disponible'); return; }
 
-  toast('Generando PDF...');
+  toast('Generando PDF (SVG)...');
   try {
-    await generatePdf(VF);
-    toast('PDF listo');
+    await generatePdfSvg(VF);
+    toast('PDF listo (SVG)');
   } catch (err) {
     console.error(err);
-    showError("Error en PDF: " + (err.message || err));
-    toast('Error al generar PDF');
+    showError("Error SVG: " + (err.message || err));
   }
-});
+}
 
-async function generatePdf(VF) {
+document.getElementById('exportPrint').addEventListener('click', exportViaPrint);
+document.getElementById('exportCanvas').addEventListener('click', exportViaCanvas);
+document.getElementById('exportSvg').addEventListener('click', exportViaSvg);
+
+async function generatePdfSvg(VF) {
   const pageW = 794, pageH = 1123;
   const marginX = 40, marginTop = 85, marginBottom = 50;
   const usableW = pageW - marginX * 2;
@@ -1276,10 +1548,10 @@ async function generatePdf(VF) {
   if (!measures.length) throw new Error('Sin compases para exportar');
 
   const keySigRoot = (useKeySig && state.blocks.length) ? state.blocks[0].root : null;
-
   const blockLabels = {};
   state.blocks.forEach((b, i) => { blockLabels[i] = b.root + ' ' + b.scale; });
 
+  // ---- Dividir los compases en sistemas que quepan en el ancho A4 ----
   const notesWidth = 28;
   const firstExtra = 110;
   const systems = [];
@@ -1295,23 +1567,10 @@ async function generatePdf(VF) {
   });
   if (cur.measures.length) systems.push(cur);
 
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
-
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(18);
-  pdf.text(title, pageW / 2, 42, { align: 'center' });
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(12);
-  pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 62, { align: 'center' });
-
-  let y = marginTop;
-  const systemGap = 15;
-
-  for (let si = 0; si < systems.length; si++) {
-    // Altura dinámica por sistema según notas graves/agudas
+  // ---- Calcular alturas de cada sistema según rango de notas ----
+  const systemLayouts = systems.map(sys => {
     let lowestMidi = 999, highestMidi = -999;
-    systems[si].measures.forEach(m => m.notes.forEach(n => {
+    sys.measures.forEach(m => m.notes.forEach(n => {
       if (n.type === 'note') {
         if (n.midi < lowestMidi) lowestMidi = n.midi;
         if (n.midi > highestMidi) highestMidi = n.midi;
@@ -1322,63 +1581,116 @@ async function generatePdf(VF) {
     const topSpace = Math.max(32, 18 + linesAbove * 10);
     const bottomSpace = Math.max(20, linesBelow * 10 + 10);
     const systemHeight = topSpace + 50 + bottomSpace + 10;
+    return { sys, topSpace, systemHeight };
+  });
 
-    if (y + systemHeight > pageH - marginBottom) {
-      pdf.addPage();
-      y = marginTop - 30;
-    }
+  // ---- Crear un div VISIBLE (pero oculto por opacidad) para renderizar ----
+  // Clave: el div está en el flujo del DOM, layouteado por el navegador,
+  // con las fuentes cargadas. Solo su opacidad es 0 para no molestar.
+  const renderBox = document.createElement('div');
+  renderBox.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: ${usableW}px;
+    background: #ffffff;
+    z-index: -1;
+    opacity: 0;
+    pointer-events: none;
+    padding: 0;
+    margin: 0;
+  `;
+  document.body.appendChild(renderBox);
 
-    const temp = document.createElement('div');
-    temp.style.position = 'absolute';
-    temp.style.left = '-99999px';
-    temp.style.top = '0';
-    temp.style.background = '#ffffff';
-    temp.style.width = usableW + 'px';
-    document.body.appendChild(temp);
+  try {
+    // Renderizar cada sistema en su propio SVG dentro del renderBox
+    const systemSvgs = [];
 
-    try {
-      const renderer = new VF.Renderer(temp, VF.Renderer.Backends.SVG);
+    for (let si = 0; si < systemLayouts.length; si++) {
+      const { sys, topSpace, systemHeight } = systemLayouts[si];
+
+      const systemDiv = document.createElement('div');
+      systemDiv.style.cssText = `width: ${usableW}px; height: ${systemHeight}px; background: #ffffff;`;
+      renderBox.appendChild(systemDiv);
+
+      const renderer = new VF.Renderer(systemDiv, VF.Renderer.Backends.SVG);
       renderer.resize(usableW, systemHeight);
       const ctx = renderer.getContext();
 
-      drawMeasuresOnContext(VF, ctx, systems[si].measures, {
+      drawMeasuresOnContext(VF, ctx, sys.measures, {
         startX: 0, startY: topSpace, totalWidth: usableW,
         beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
         firstMeasureHasClef: true,
         firstMeasureHasKeySig: si === 0 && !!keySigRoot,
         firstMeasureHasTimeSig: si === 0,
         keySigRoot: si === 0 ? keySigRoot : null,
-        measureIndexOffset: systems[si].offset,
+        measureIndexOffset: sys.offset,
         blockStartMeasure,
         blockLabels,
       });
 
-      const svgEl = temp.querySelector('svg');
+      const svgEl = systemDiv.querySelector('svg');
       if (!svgEl) throw new Error('SVG no generado en sistema ' + (si+1));
 
       svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      svgEl.setAttribute('width', usableW);
-      svgEl.setAttribute('height', systemHeight);
+      svgEl.setAttribute('width', String(usableW));
+      svgEl.setAttribute('height', String(systemHeight));
 
+      systemSvgs.push({ svgEl, systemHeight });
+    }
+
+    // Esperar a que el navegador haga layout y carguen métricas de fuentes
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    // Asegurarse de que las fuentes están listas (si el navegador lo soporta)
+    if (document.fonts && document.fonts.ready) {
+      try { await document.fonts.ready; } catch(e) {}
+    }
+
+    // ---- Convertir cada SVG a imagen PNG ahora que está bien layouteado ----
+    const systemImages = [];
+    for (const { svgEl, systemHeight } of systemSvgs) {
       const svgString = new XMLSerializer().serializeToString(svgEl);
       const imgData = await svgToPngDataUrl(svgString, usableW, systemHeight);
+      systemImages.push({ imgData, systemHeight });
+    }
 
+    // ---- Construir el PDF con los sistemas apilados ----
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'px', format: [pageW, pageH], orientation: 'portrait', hotfixes: ['px_scaling'] });
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(18);
+    pdf.text(title, pageW / 2, 42, { align: 'center' });
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(12);
+    pdf.text('♩ = ' + tempo + '   ·   ' + timesig, pageW / 2, 62, { align: 'center' });
+
+    let y = marginTop;
+    const systemGap = 15;
+
+    for (const { imgData, systemHeight } of systemImages) {
+      if (y + systemHeight > pageH - marginBottom) {
+        pdf.addPage();
+        y = marginTop - 30;
+      }
       pdf.addImage(imgData, 'PNG', marginX, y, usableW, systemHeight);
       y += systemHeight + systemGap;
-    } finally {
-      document.body.removeChild(temp);
     }
-  }
 
-  const total = pdf.internal.getNumberOfPages();
-  for (let p = 1; p <= total; p++) {
-    pdf.setPage(p);
-    pdf.setFontSize(9);
-    pdf.setTextColor(120);
-    pdf.text(p + ' / ' + total, pageW / 2, pageH - 20, { align: 'center' });
-  }
+    // Pie de página
+    const total = pdf.internal.getNumberOfPages();
+    for (let p = 1; p <= total; p++) {
+      pdf.setPage(p);
+      pdf.setFontSize(9);
+      pdf.setTextColor(120);
+      pdf.text(p + ' / ' + total, pageW / 2, pageH - 20, { align: 'center' });
+    }
 
-  pdf.save((title || 'rutina').replace(/\s+/g,'_') + '.pdf');
+    pdf.save((title || 'rutina').replace(/\s+/g,'_') + '.pdf');
+  } finally {
+    document.body.removeChild(renderBox);
+  }
 }
 
 function svgToPngDataUrl(svgString, w, h) {
