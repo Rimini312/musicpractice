@@ -223,14 +223,24 @@
   }
 
   .score-block-title {
-    font-size: 11px;
+    font-size: 9px;
     font-weight: 600;
-    color: #555;
-    margin-bottom: 2px;
-    padding-left: 4px;
+    color: #666;
+    margin: 0 0 -2px 4px;
+    padding: 0;
+    line-height: 1.1;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: 0.02em;
   }
-  body.night .score-block-title { color: #555; }
+  body.night .score-block-title { color: #888; }
+
+  .score-block {
+    overflow: visible;
+  }
+  .score-block svg {
+    overflow: visible !important;
+    display: block;
+  }
 
   .bottom {
     display: flex;
@@ -972,15 +982,16 @@ function renderScore() {
       // Altura según notas graves/agudas del bloque
       const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
       const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-      const topSpace = Math.max(20, 10 + linesAbove * 10);
-      const bottomSpace = Math.max(20, linesBelow * 10 + 10);
+      // Más generoso para evitar recortes: 14px por línea adicional, +margen fijo
+      const topSpace = Math.max(18, 8 + linesAbove * 14);
+      const bottomSpace = Math.max(24, linesBelow * 14 + 14);
       const staveHeight = 50;
-      const blockHeight = topSpace + staveHeight + bottomSpace + 20;
+      const blockHeight = topSpace + staveHeight + bottomSpace + 10;
 
       // Contenedor del bloque con título arriba
       const blockWrap = document.createElement('div');
       blockWrap.className = 'score-block';
-      blockWrap.style.cssText = 'margin-bottom: 18px;';
+      blockWrap.style.cssText = 'margin-bottom: 22px;';
 
       const titleEl = document.createElement('div');
       titleEl.className = 'score-block-title';
@@ -988,7 +999,7 @@ function renderScore() {
       blockWrap.appendChild(titleEl);
 
       const svgMount = document.createElement('div');
-      svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent;';
+      svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent; overflow: visible;';
       blockWrap.appendChild(svgMount);
 
       mount.appendChild(blockWrap);
@@ -1216,14 +1227,14 @@ function renderScoreMultiSystem() {
   blocksData.forEach((bd) => {
     const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
     const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-    const topSpace = Math.max(20, 10 + linesAbove * 10);
-    const bottomSpace = Math.max(20, linesBelow * 10 + 10);
+    const topSpace = Math.max(18, 8 + linesAbove * 14);
+    const bottomSpace = Math.max(24, linesBelow * 14 + 14);
     const staveHeight = 50;
-    const blockHeight = topSpace + staveHeight + bottomSpace + 20;
+    const blockHeight = topSpace + staveHeight + bottomSpace + 10;
 
     const blockWrap = document.createElement('div');
     blockWrap.className = 'score-block';
-    blockWrap.style.cssText = 'margin-bottom: 12px;';
+    blockWrap.style.cssText = 'margin-bottom: 18px;';
 
     const titleEl = document.createElement('div');
     titleEl.className = 'score-block-title';
@@ -1231,7 +1242,7 @@ function renderScoreMultiSystem() {
     blockWrap.appendChild(titleEl);
 
     const svgMount = document.createElement('div');
-    svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent;';
+    svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent; overflow: visible;';
     blockWrap.appendChild(svgMount);
 
     mount.appendChild(blockWrap);
@@ -1410,9 +1421,9 @@ async function generatePdfSvg(VF) {
     for (const bd of blocksData) {
       const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
       const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-      const topSpace = Math.max(20, 10 + linesAbove * 10);
-      const bottomSpace = Math.max(20, linesBelow * 10 + 10);
-      const blockHeight = topSpace + 50 + bottomSpace + 20;
+      const topSpace = Math.max(18, 8 + linesAbove * 14);
+      const bottomSpace = Math.max(24, linesBelow * 14 + 14);
+      const blockHeight = topSpace + 50 + bottomSpace + 10;
 
       const sysDiv = document.createElement('div');
       sysDiv.style.cssText = 'width:' + usableW + 'px; height:' + blockHeight + 'px; background:#ffffff;';
