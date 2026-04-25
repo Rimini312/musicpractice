@@ -548,25 +548,21 @@ function mirror(ascSeq) {
 }
 
 // Pares (cuartas, quintas, etc.) — la base va de 1 a n.
-// Subida: i de 1 a n produce [i, i+step]. La segunda nota puede salir.
-// Bajada: desde la última nota tocada (n+step), descender en pares
-// invertidos: [n+step, n], [n+step-1, n-1], ..., [step+1, 1].
-// El último elemento de la subida es n+step. El primero de la bajada
-// también es n+step → se elimina ese duplicado.
+// Subida: cada par [grave, agudo] → [i, i+step]. Termina en [n, n+step].
+// Bajada: cada par [agudo, grave] → [i+step, i] con i decreciendo desde n.
+// Empezar la bajada con el mismo n+step (la cima) es musical: la nota
+// más aguda se toca al final de la subida y al empezar la bajada,
+// como pivote natural.
 function pairsUpDown(n, step) {
   const up = [];
   for (let i = 1; i <= n; i++) up.push(i, i + step);
-  // Bajada: empezamos desde n+step (última nota), cada par es [hi, lo]
-  // donde hi va de n+step bajando y lo va de n bajando.
   const down = [];
   for (let i = n; i >= 1; i--) down.push(i + step, i);
-  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
   return [...up, ...down];
 }
 
 // Grupos: i de 1 a n produce [i, i+1, ..., i+size-1].
-// Bajada: desde la última nota (n+size-1), grupos descendentes
-// [n+size-1, n+size-2, ..., n], [n+size-2, ..., n-1]...
+// Bajada: desde n hasta 1, cada grupo se invierte: [i+size-1, ..., i].
 function groupsUpDown(n, size) {
   const up = [];
   for (let i = 1; i <= n; i++) {
@@ -576,7 +572,6 @@ function groupsUpDown(n, size) {
   for (let i = n; i >= 1; i--) {
     for (let k = 0; k < size; k++) down.push(i + size - 1 - k);
   }
-  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
   return [...up, ...down];
 }
 
@@ -586,12 +581,11 @@ function altThirdsUpDown(n) {
   for (let i = 1; i <= n; i++) up.push(i, i + 2);
   const down = [];
   for (let i = n; i >= 1; i--) down.push(i + 2, i);
-  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
   return [...up, ...down];
 }
 
 // Patrón con offsets (ej. 1-2-3-5 = offsets [0,1,2,4]):
-// i de 1 a n produce [i, i+a, i+b, i+c].
+// Subida: i de 1 a n produce [i, i+a, i+b, i+c].
 // Bajada: i de n a 1 produce el grupo invertido [i+c, i+b, i+a, i].
 function stepsUpDown(n, offs) {
   const up = [];
@@ -603,7 +597,6 @@ function stepsUpDown(n, offs) {
   for (let i = n; i >= 1; i--) {
     reversedOffs.forEach(o => down.push(i + o));
   }
-  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
   return [...up, ...down];
 }
 
@@ -613,7 +606,6 @@ function pivotUpDown(n) {
   for (let i = 1; i <= n; i++) up.push(i, i + 2, i, i + 3, i, i + 4);
   const down = [];
   for (let i = n; i >= 1; i--) down.push(i + 4, i, i + 3, i, i + 2, i);
-  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
   return [...up, ...down];
 }
 
@@ -623,7 +615,6 @@ function suspensionUpDown(n) {
   for (let i = 1; i <= n; i++) up.push(i, i + 1, i, i + 2, i, i + 3);
   const down = [];
   for (let i = n; i >= 1; i--) down.push(i + 3, i, i + 2, i, i + 1, i);
-  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
   return [...up, ...down];
 }
 
