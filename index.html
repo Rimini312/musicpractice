@@ -522,44 +522,113 @@ const SCALES = {
 };
 
 /* ============== PATRONES ==============
-   Todos los patrones generan la secuencia completa "subir y bajar":
-   primero el patrón ascendente, luego el mismo patrón descendente
-   (invertido). Los números como 1,3,5 se refieren a grados de la
-   escala, no a intervalos cromáticos. n = nº total de grados (escala
-   completa incluyendo octavas y nota tope). */
+   Cada patrón genera "subir + bajar" donde la bajada es el espejo
+   estructural de la subida (mismas figuras pero descendiendo). */
 const PATTERNS = {
-  "Escala":         (n) => upDown(rangeSeq(1, n)),
-  "Terceras":       (n) => upDown(pairs(n, 2, false)),
-  "Cuartas":        (n) => upDown(pairs(n, 3, false)),
-  "Quintas":        (n) => upDown(pairs(n, 4, false)),
-  "Sextas":         (n) => upDown(pairs(n, 5, false)),
-  "Octavas":        (n) => upDown(pairs(n, 7, false)),
-  "Grupos de 3":    (n) => upDown(groups(n, 3, false)),
-  "Grupos de 4":    (n) => upDown(groups(n, 4, false)),
-  "1-3-2-4":        (n) => upDown(altThirds(n)),
-  "1-2-3-5":        (n) => upDown(patternSteps(n, [0,1,2,4])),
-  "1-3-5-3":        (n) => upDown(patternSteps(n, [0,2,4,2])),
-  "1-3-5-8":        (n) => upDown(patternSteps(n, [0,2,4,7])),
-  "Pivote 1-3-1-4-1-5": (n) => upDown(pivot(n)),
-  "Susp. 1-2-1-3-1-4":  (n) => upDown(suspension(n)),
+  "Escala":             (n) => mirror(rangeSeq(1, n)),
+  "Terceras":           (n) => pairsUpDown(n, 2),
+  "Cuartas":            (n) => pairsUpDown(n, 3),
+  "Quintas":            (n) => pairsUpDown(n, 4),
+  "Sextas":             (n) => pairsUpDown(n, 5),
+  "Octavas":            (n) => pairsUpDown(n, 7),
+  "Grupos de 3":        (n) => groupsUpDown(n, 3),
+  "Grupos de 4":        (n) => groupsUpDown(n, 4),
+  "1-3-2-4":            (n) => altThirdsUpDown(n),
+  "1-2-3-5":            (n) => stepsUpDown(n, [0,1,2,4]),
+  "1-3-5-3":            (n) => stepsUpDown(n, [0,2,4,2]),
+  "1-3-5-8":            (n) => stepsUpDown(n, [0,2,4,7]),
+  "Pivote 1-3-1-4-1-5": (n) => pivotUpDown(n),
+  "Susp. 1-2-1-3-1-4":  (n) => suspensionUpDown(n),
 };
 
-// Concatena la secuencia ascendente con la misma invertida, evitando
-// duplicar la nota de unión (la última del ascendente es la primera
-// del descendente invertido).
-function upDown(ascSeq) {
+// Espejo simple para escala normal: 1,2,3...n,n-1,...,1
+function mirror(ascSeq) {
   if (!ascSeq.length) return [];
   const desc = ascSeq.slice(0, -1).reverse();
   return [...ascSeq, ...desc];
 }
 
+// Pares (ej. cuartas) ascendentes: 1-4, 2-5, 3-6...
+// Bajada simétrica: n-(n-3), (n-1)-(n-4)... es decir, los mismos pares
+// pero recorridos de arriba hacia abajo: por ejemplo en n=8, step=3:
+// up   = [1,4, 2,5, 3,6, 4,7, 5,8]
+// down = [8,5, 7,4, 6,3, 5,2, 4,1]
+// (Sin duplicar el último par del up con el primero del down,
+//  el último elemento del up es 8 y el primero del down es 8, lo quitamos)
+function pairsUpDown(n, step) {
+  const up = [];
+  for (let i = 1; i + step <= n; i++) up.push(i, i + step);
+  const down = [];
+  for (let i = n; i - step >= 1; i--) down.push(i, i - step);
+  // Evitar duplicar el extremo: up termina en n, down empieza con n
+  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
+  return [...up, ...down];
+}
+
+// Grupos ascendentes: [1,2,3], [2,3,4]... Bajada: [n,n-1,n-2], [n-1,n-2,n-3]...
+function groupsUpDown(n, size) {
+  const up = [];
+  for (let i = 1; i + size - 1 <= n; i++) {
+    for (let k = 0; k < size; k++) up.push(i + k);
+  }
+  const down = [];
+  for (let i = n; i - size + 1 >= 1; i--) {
+    for (let k = 0; k < size; k++) down.push(i - k);
+  }
+  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
+  return [...up, ...down];
+}
+
+// Patrón 1-3-2-4: alterna terceras ascendentes
+// up = [1,3, 2,4, 3,5, 4,6...]; down = [n,n-2, n-1,n-3, n-2,n-4...]
+function altThirdsUpDown(n) {
+  const up = [];
+  for (let i = 1; i + 2 <= n; i++) up.push(i, i + 2);
+  const down = [];
+  for (let i = n; i - 2 >= 1; i--) down.push(i, i - 2);
+  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
+  return [...up, ...down];
+}
+
+// Patrón con offsets [0, a, b, c]: up = [1,1+a,1+b,1+c, 2,2+a,...]
+// Bajada simétrica usando los mismos offsets pero descendiendo:
+// down = [n,n-a,n-b,n-c, n-1,n-1-a,...]
+function stepsUpDown(n, offs) {
+  const m = Math.max(...offs);
+  const up = [];
+  for (let i = 1; i + m <= n; i++) {
+    offs.forEach(o => up.push(i + o));
+  }
+  const down = [];
+  for (let i = n; i - m >= 1; i--) {
+    offs.forEach(o => down.push(i - o));
+  }
+  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
+  return [...up, ...down];
+}
+
+// Pivote: 1-3-1-4-1-5, 2-4-2-5-2-6...
+// Bajada: n-(n-2)-n-(n-3)-n-(n-4), (n-1)-...
+function pivotUpDown(n) {
+  const up = [];
+  for (let i = 1; i + 4 <= n; i++) up.push(i, i + 2, i, i + 3, i, i + 4);
+  const down = [];
+  for (let i = n; i - 4 >= 1; i--) down.push(i, i - 2, i, i - 3, i, i - 4);
+  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
+  return [...up, ...down];
+}
+
+// Suspensión: 1-2-1-3-1-4, 2-3-2-4-2-5...
+function suspensionUpDown(n) {
+  const up = [];
+  for (let i = 1; i + 3 <= n; i++) up.push(i, i + 1, i, i + 2, i, i + 3);
+  const down = [];
+  for (let i = n; i - 3 >= 1; i--) down.push(i, i - 1, i, i - 2, i, i - 3);
+  if (up.length && down.length && up[up.length - 1] === down[0]) down.shift();
+  return [...up, ...down];
+}
+
 function rangeSeq(a, b){ const o=[]; if(a<=b) for(let i=a;i<=b;i++) o.push(i); else for(let i=a;i>=b;i--) o.push(i); return o; }
-function pairs(n, step, desc){ const o=[]; for(let i=1;i+step<=n;i++){ if(desc) o.push(i+step,i); else o.push(i,i+step);} return o; }
-function groups(n, size, desc){ const o=[]; for(let i=1;i+size-1<=n;i++){ const g=[]; for(let k=0;k<size;k++) g.push(i+k); if(desc) g.reverse(); o.push(...g); } return o; }
-function altThirds(n){ const o=[]; for(let i=1;i+2<=n;i++){ o.push(i,i+2);} return o; }
-function patternSteps(n, offs){ const o=[]; const m=Math.max(...offs); for(let i=1;i+m<=n;i++) offs.forEach(x=>o.push(i+x)); return o; }
-function pivot(n){ const o=[]; for(let i=1;i+4<=n;i++) o.push(i,i+2,i,i+3,i,i+4); return o; }
-function suspension(n){ const o=[]; for(let i=1;i+3<=n;i++) o.push(i,i+1,i,i+2,i,i+3); return o; }
 
 /* ============== MIDI / NOTAS ============== */
 const SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -836,18 +905,13 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
     beatsPerMeasure, beatValue, timesig, ticksPerMeasure,
     firstMeasureHasClef, firstMeasureHasKeySig, firstMeasureHasTimeSig,
     keySigRoot,
-    scale = 1, // factor de escala general (0.85 = más compacto)
+    scale = 1,
+    labelText = null,
   } = opts;
 
-  // Si hay escala, aplicamos transform al contexto SVG
   if (scale !== 1 && ctx.scale) {
     try { ctx.scale(scale, scale); } catch(e) {}
   }
-
-  // Los valores startX, startY, totalWidth están YA en coordenadas
-  // pre-escala (coordenadas internas de dibujo), así que no hay que
-  // dividirlos. El caller se encarga de reservar el ancho/alto físico
-  // correcto en el SVG.
 
   // Validación: cada compás debe sumar exactamente ticksPerMeasure.
   measures.forEach((m, i) => {
@@ -954,6 +1018,27 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
   } catch(e) {
     console.error('Error al formatear:', e);
   }
+
+  // Etiqueta del bloque dentro del SVG, pegada al pentagrama por arriba
+  if (labelText) {
+    try {
+      const svg = ctx.svg;
+      if (svg) {
+        const ns = 'http://www.w3.org/2000/svg';
+        const text = document.createElementNS(ns, 'text');
+        // Posición: justo encima del stave, en la zona de la clave de sol
+        text.setAttribute('x', String(startX + 2));
+        text.setAttribute('y', String(startY - 2));
+        text.setAttribute('font-family', 'Arial, sans-serif');
+        text.setAttribute('font-size', '7');
+        text.setAttribute('font-weight', '600');
+        text.setAttribute('fill', '#777');
+        text.setAttribute('letter-spacing', '0.3');
+        text.textContent = labelText.toUpperCase();
+        svg.appendChild(text);
+      }
+    } catch(e) { console.warn('Label:', e); }
+  }
 }
 
 function showError(msg) {
@@ -1004,8 +1089,6 @@ function renderScore() {
     const containerWidth = Math.max(320, mount.parentElement.clientWidth - 20);
 
     blocksData.forEach((bd) => {
-      // Calcular ancho INTERNO necesario (antes de escala): proporcional
-      // al nº de notas + acidentales del bloque.
       const noteCount = bd.measures.reduce((a, m) => a + m.notes.length, 0);
       const accCount = bd.measures.reduce((a, m) => a + m.notes.filter(n => {
         if (n.type !== 'note') return false;
@@ -1013,17 +1096,14 @@ function renderScore() {
         return /[a-g]([#b]+)/.test(key);
       }).length, 0);
 
-      // Cada nota ocupa 26px, cada acidental 10px extra, + header (clef+time+key)
       const headerWidth = 110;
       const innerWidth = Math.max(400, headerWidth + noteCount * 26 + accCount * 10);
-
-      // El ancho FÍSICO del SVG tras escala
       const physWidth = Math.ceil(innerWidth * SCALE);
 
-      // Altura según notas graves/agudas
       const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
       const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-      const topSpace = Math.max(24, 16 + linesAbove * 14);
+      // topSpace muy reducido: el título va dentro del SVG, pegado al stave
+      const topSpace = Math.max(14, 10 + linesAbove * 14);
       const bottomSpace = Math.max(28, 20 + linesBelow * 14);
       const staveHeight = 50;
       const innerHeight = topSpace + staveHeight + bottomSpace;
@@ -1031,12 +1111,7 @@ function renderScore() {
 
       const blockWrap = document.createElement('div');
       blockWrap.className = 'score-block';
-      blockWrap.style.cssText = 'margin-bottom: 18px; width: ' + physWidth + 'px;';
-
-      const titleEl = document.createElement('div');
-      titleEl.className = 'score-block-title';
-      titleEl.textContent = bd.label;
-      blockWrap.appendChild(titleEl);
+      blockWrap.style.cssText = 'margin-bottom: 14px; width: ' + physWidth + 'px;';
 
       const svgMount = document.createElement('div');
       svgMount.style.cssText = 'width:' + physWidth + 'px; background: transparent; overflow: visible;';
@@ -1058,6 +1133,7 @@ function renderScore() {
         firstMeasureHasTimeSig: true,
         keySigRoot,
         scale: SCALE,
+        labelText: bd.label,
       });
     });
 
@@ -1273,19 +1349,14 @@ function renderScoreMultiSystem() {
   blocksData.forEach((bd) => {
     const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
     const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-    const topSpace = Math.max(30, 20 + linesAbove * 14);
-    const bottomSpace = Math.max(36, 24 + linesBelow * 14);
+    const topSpace = Math.max(14, 10 + linesAbove * 14);
+    const bottomSpace = Math.max(28, 20 + linesBelow * 14);
     const staveHeight = 50;
     const blockHeight = topSpace + staveHeight + bottomSpace;
 
     const blockWrap = document.createElement('div');
     blockWrap.className = 'score-block';
-    blockWrap.style.cssText = 'margin-bottom: 22px;';
-
-    const titleEl = document.createElement('div');
-    titleEl.className = 'score-block-title';
-    titleEl.textContent = bd.label;
-    blockWrap.appendChild(titleEl);
+    blockWrap.style.cssText = 'margin-bottom: 14px;';
 
     const svgMount = document.createElement('div');
     svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent; overflow: visible;';
@@ -1306,6 +1377,7 @@ function renderScoreMultiSystem() {
       firstMeasureHasKeySig: !!keySigRoot,
       firstMeasureHasTimeSig: true,
       keySigRoot,
+      labelText: bd.label,
     });
   });
 
@@ -1521,12 +1593,11 @@ async function generatePdfSvg(VF) {
 
         const linesAbove = Math.max(0, Math.ceil((ln.highestMidi - 77) / 2));
         const linesBelow = Math.max(0, Math.ceil((64 - ln.lowestMidi) / 2));
-        const topSpace = Math.max(24, 16 + linesAbove * 14);
+        const topSpace = Math.max(14, 10 + linesAbove * 14);
         const bottomSpace = Math.max(28, 20 + linesBelow * 14);
         const innerHeight = topSpace + 50 + bottomSpace;
         const physHeight = Math.ceil(innerHeight * SCALE);
 
-        // Ancho interno = ancho físico A4 / escala
         const innerWidth = usableW / SCALE;
 
         const sysDiv = document.createElement('div');
@@ -1547,6 +1618,7 @@ async function generatePdfSvg(VF) {
           firstMeasureHasTimeSig: isFirstLine,
           keySigRoot,
           scale: SCALE,
+          labelText: isFirstLine ? bd.label : null,
         });
 
         const svgEl = sysDiv.querySelector('svg');
@@ -1556,7 +1628,7 @@ async function generatePdfSvg(VF) {
         svgEl.setAttribute('height', String(physHeight));
 
         blockAssets.push({
-          title: isFirstLine ? bd.label : null,
+          isFirstLine,
           svgEl,
           blockHeight: physHeight,
         });
@@ -1585,30 +1657,21 @@ async function generatePdfSvg(VF) {
     pdf.text('Tempo = ' + tempo + '   -   ' + timesig, pageW / 2, 62, { align: 'center' });
 
     let y = marginTop;
-    const titleH = 14;
-    const blockGap = 20;
-    const lineGap = 6; // separación entre líneas del mismo bloque
+    const blockGap = 18;
+    const lineGap = 6;
 
-    for (const a of blockAssets) {
-      const headerH = a.title ? titleH : 0;
-      const totalBlockH = headerH + a.blockHeight;
-      if (y + totalBlockH > pageH - marginBottom) {
+    for (let i = 0; i < blockAssets.length; i++) {
+      const a = blockAssets[i];
+      if (y + a.blockHeight > pageH - marginBottom) {
         pdf.addPage();
         y = marginTop - 30;
       }
-      if (a.title) {
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(8);
-        pdf.setTextColor(100);
-        pdf.text(a.title.toUpperCase(), marginX + 6, y + 9);
-        pdf.setTextColor(0);
-      }
-      pdf.addImage(a.imgData, 'PNG', marginX, y + headerH, usableW, a.blockHeight);
-      // Si es última línea del bloque (próxima tiene título), usar blockGap
-      // Si no, usar lineGap para que las líneas del mismo bloque queden juntas
-      const nextAsset = blockAssets[blockAssets.indexOf(a) + 1];
-      const gap = (nextAsset && nextAsset.title) ? blockGap : lineGap;
-      y += totalBlockH + gap;
+      pdf.addImage(a.imgData, 'PNG', marginX, y, usableW, a.blockHeight);
+      const next = blockAssets[i + 1];
+      // Si la siguiente es una línea de continuación (no es primera línea de su bloque),
+      // separación pequeña; si es primera de un nuevo bloque, separación grande
+      const gap = (next && next.isFirstLine) ? blockGap : lineGap;
+      y += a.blockHeight + gap;
     }
 
     const total = pdf.internal.getNumberOfPages();
@@ -1687,4 +1750,4 @@ window.addEventListener('error', (e) => {
 </script>
 
 </body>
-</html> 
+</html>
