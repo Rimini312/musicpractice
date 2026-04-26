@@ -524,20 +524,23 @@ const SCALES = {
    subida. Esto permite que los saltos (cuartas, quintas, etc.) se
    "salgan" por arriba para que el ejercicio sea musicalmente completo. */
 const PATTERNS = {
-  "Escala":             (n) => mirror(rangeSeq(1, n)),
-  "Terceras":           (n) => pairsUpDown(n, 2),
-  "Cuartas":            (n) => pairsUpDown(n, 3),
-  "Quintas":            (n) => pairsUpDown(n, 4),
-  "Sextas":             (n) => pairsUpDown(n, 5),
-  "Octavas":            (n) => pairsUpDown(n, 7),
-  "Grupos de 3":        (n) => groupsUpDown(n, 3),
-  "Grupos de 4":        (n) => groupsUpDown(n, 4),
-  "1-3-2-4":            (n) => altThirdsUpDown(n),
-  "1-2-3-5":            (n) => stepsUpDown(n, [0,1,2,4]),
-  "1-3-5-3":            (n) => stepsUpDown(n, [0,2,4,2]),
-  "1-3-5-8":            (n) => stepsUpDown(n, [0,2,4,7]),
-  "Pivote 1-3-1-4-1-5": (n) => pivotUpDown(n),
-  "Susp. 1-2-1-3-1-4":  (n) => suspensionUpDown(n),
+  "Escala":               (n) => mirror(rangeSeq(1, n)),
+  "Terceras":             (n) => pairsUpDown(n, 2),
+  "Cuartas":              (n) => pairsUpDown(n, 3),
+  "Quintas":              (n) => pairsUpDown(n, 4),
+  "Sextas":               (n) => pairsUpDown(n, 5),
+  "Octavas":              (n) => pairsUpDown(n, 7),
+  "Grupos de 3":          (n) => groupsUpDown(n, 3),
+  "Grupos de 3 (3-2-1)":  (n) => groupsRevUpDown(n, 3),
+  "Grupos de 4":          (n) => groupsUpDown(n, 4),
+  "Grupos de 4 (4-3-2-1)":(n) => groupsRevUpDown(n, 4),
+  "1-3-2-4":              (n) => altThirdsUpDown(n),
+  "3-1-4-2":              (n) => altThirdsRevUpDown(n),
+  "1-2-3-5":              (n) => stepsUpDown(n, [0,1,2,4]),
+  "1-3-5-3":              (n) => stepsUpDown(n, [0,2,4,2]),
+  "1-3-5-8":              (n) => stepsUpDown(n, [0,2,4,7]),
+  "Pivote 1-3-1-4-1-5":   (n) => pivotUpDown(n),
+  "Susp. 1-2-1-3-1-4":    (n) => suspensionUpDown(n),
 };
 
 // Espejo simple para escala normal: 1,2,3...n,n-1,...,1
@@ -575,12 +578,40 @@ function groupsUpDown(n, size) {
   return [...up, ...down];
 }
 
+// Grupos REVERSE: cada grupo descendente dentro, pero el patrón sigue
+// avanzando hacia arriba.
+// Ej. size=3: i=1 → [3,2,1], i=2 → [4,3,2], i=3 → [5,4,3]...
+// Bajada simétrica: cada grupo asciende dentro mientras el patrón
+// avanza hacia abajo. i=n → [i, i+1, i+2] (grupo ascendente).
+function groupsRevUpDown(n, size) {
+  const up = [];
+  for (let i = 1; i <= n; i++) {
+    for (let k = size - 1; k >= 0; k--) up.push(i + k);
+  }
+  const down = [];
+  for (let i = n; i >= 1; i--) {
+    for (let k = 0; k < size; k++) down.push(i + k);
+  }
+  return [...up, ...down];
+}
+
 // 1-3-2-4 (alternancia de terceras): pares [i, i+2] con i de 1 a n.
 function altThirdsUpDown(n) {
   const up = [];
   for (let i = 1; i <= n; i++) up.push(i, i + 2);
   const down = [];
   for (let i = n; i >= 1; i--) down.push(i + 2, i);
+  return [...up, ...down];
+}
+
+// 3-1-4-2: cada par invertido (empezando por la nota más aguda del par).
+// Subida: i=1 → [3,1], i=2 → [4,2], i=3 → [5,3]...
+// Bajada simétrica: cada par grave-agudo, patrón descendiendo.
+function altThirdsRevUpDown(n) {
+  const up = [];
+  for (let i = 1; i <= n; i++) up.push(i + 2, i);
+  const down = [];
+  for (let i = n; i >= 1; i--) down.push(i, i + 2);
   return [...up, ...down];
 }
 
@@ -620,7 +651,95 @@ function suspensionUpDown(n) {
 
 function rangeSeq(a, b){ const o=[]; if(a<=b) for(let i=a;i<=b;i++) o.push(i); else for(let i=a;i>=b;i--) o.push(i); return o; }
 
-/* ============== MIDI / NOTAS ============== */
+/* ============== ORTOGRAFÍA DE NOTAS POR ESCALA ==============
+   El problema: para F Dórico, intervalos [0,2,3,5,7,9,10] desde F dan
+   F G G#/Ab A#/Bb C D D#/Eb. Pero F Dórico se escribe con bemoles
+   (Ab, Bb, Eb), no con sostenidos. Lo correcto musicalmente es que
+   cada grado de la escala use una letra diferente: F G A B C D E.
+   
+   Para conseguirlo, calculamos la nota basándonos en la LETRA esperada
+   por el grado de la escala, ajustando con # o b según el intervalo. */
+
+const LETTERS = ['C','D','E','F','G','A','B'];
+const LETTER_TO_PC = {C:0, D:2, E:4, F:5, G:7, A:9, B:11};
+
+// Dado una letra base y un pitch class objetivo (0-11), calcular el accidental
+// que hace que la letra suene como ese pitch class.
+function calcAccidental(letter, targetPc) {
+  const basePc = LETTER_TO_PC[letter];
+  let diff = (targetPc - basePc + 12) % 12;
+  if (diff > 6) diff -= 12; // [-5..6]
+  if (diff === 0) return '';
+  if (diff === 1) return '#';
+  if (diff === 2) return '##';
+  if (diff === -1) return 'b';
+  if (diff === -2) return 'bb';
+  // Casos extremos: usar la enarmonía de FLAT/SHARP genérica
+  return null;
+}
+
+// Devuelve un array de claves VexFlow para una escala, una octava base
+// y N octavas. Cada nota se escribe con la letra "correcta" (cada grado
+// usa una letra distinta del alfabeto musical, en orden).
+function buildScaleVexKeys(rootName, scaleName, baseOct, octaves) {
+  const intervals = SCALES[scaleName];
+  if (!intervals) return null;
+
+  // Letra de la tónica
+  const rootMatch = rootName.match(/^([A-G])([#b]?)$/);
+  if (!rootMatch) return null;
+  const rootLetter = rootMatch[1];
+  const rootAcc = rootMatch[2] || '';
+  const rootLetterIdx = LETTERS.indexOf(rootLetter);
+  const rootPc = (LETTER_TO_PC[rootLetter] + (rootAcc === '#' ? 1 : rootAcc === 'b' ? -1 : 0) + 12) % 12;
+
+  // Para escalas heptatónicas (7 notas), cada grado usa la siguiente letra.
+  // Para escalas con menos/más notas (pentatónica, hexátona, blues, cromática,
+  // disminuida, etc.) caemos al método antiguo (preferFlats).
+  const isHeptatonic = intervals.length === 7;
+
+  const keys = []; // {letter, accidental, octave, midi}
+  if (isHeptatonic) {
+    for (let oct = 0; oct < octaves + 2; oct++) { // octavas extra de holgura
+      for (let g = 0; g < intervals.length; g++) {
+        const letterIdx = (rootLetterIdx + g) % 7;
+        const letter = LETTERS[letterIdx];
+        const targetPc = (rootPc + intervals[g]) % 12;
+        let acc = calcAccidental(letter, targetPc);
+        if (acc == null) {
+          // fallback: usar SHARP/FLAT genérico
+          const useFlat = prefersFlats(rootName);
+          const name = (useFlat ? FLAT : SHARP)[targetPc];
+          keys.push({
+            vexKey: name[0].toLowerCase() + name.slice(1) + '/' + (baseOct + oct + (letterIdx < rootLetterIdx ? 1 : 0)),
+            midi: noteToMidi((useFlat?FLAT:SHARP)[targetPc] + (baseOct + oct + (letterIdx < rootLetterIdx ? 1 : 0))),
+          });
+          continue;
+        }
+        // La octava sube cuando la letra "envuelve" más allá de B
+        const oct8va = baseOct + oct + (letterIdx < rootLetterIdx ? 1 : 0);
+        const midi = noteToMidi(letter + acc + oct8va);
+        keys.push({
+          vexKey: letter.toLowerCase() + acc + '/' + oct8va,
+          midi,
+        });
+      }
+    }
+    // Añadir la octava final (tónica una octava arriba) al cierre del recorrido principal
+    // Lo dejamos para que buildBlockNotes lo gestione (ya hay holgura suficiente)
+  } else {
+    // No heptatónica: método antiguo basado en pitch class + preferFlats
+    const preferFlats = prefersFlats(rootName);
+    const rootMidi = noteToMidi(rootName + baseOct);
+    for (let oct = 0; oct < octaves + 2; oct++) {
+      for (const iv of intervals) {
+        const midi = rootMidi + iv + 12 * oct;
+        keys.push({ vexKey: midiToVexKey(midi, preferFlats), midi });
+      }
+    }
+  }
+  return keys;
+}
 const SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
 
@@ -647,11 +766,8 @@ function prefersFlats(root) {
 }
 
 /* ============== CONSTRUCCIÓN DE NOTAS DEL BLOQUE ==============
-   La idea: si el patrón es "Cuartas" en C mayor 1 octava, queremos que
-   la BASE de cada par recorra de C4 a C5. Las notas saltadas (la segunda
-   del par) pueden salir por arriba (D5, E5, F5...). Por eso generamos
-   más grados de los estrictamente necesarios y pasamos a los patrones
-   el valor "n" como el número de bases del recorrido (no el total). */
+   Devuelve array de {midi, vexKey} con ortografía correcta de la escala.
+   La base recorre 1..n; las notas saltadas pueden salir por arriba. */
 function buildBlockNotes(block, minM, maxM, allowOutOfRange) {
   const { root, scale, octaves, pattern, startOct } = block;
   const intervals = SCALES[scale];
@@ -673,33 +789,29 @@ function buildBlockNotes(block, minM, maxM, allowOutOfRange) {
     if (isNaN(baseOct)) baseOct = 4;
   }
 
-  const rootMidi = noteToMidi(root + baseOct);
+  // Construir claves con ortografía correcta
+  const scaleKeys = buildScaleVexKeys(root, scale, baseOct, octaves);
+  if (!scaleKeys) throw new Error('No se pudo construir la escala');
 
-  // Construir grados con una octava EXTRA por arriba para que los saltos
-  // del patrón puedan salir del rango sin quedarse sin notas.
-  // n = número de bases del patrón = octavas * notas_por_octava + 1
+  // n = número de bases del recorrido
   const notesPerOctave = intervals.length;
   const totalBases = octaves * notesPerOctave + 1;
 
-  // Generamos grades hasta totalBases + holgura (suficiente para los offsets máx ~7)
-  const grades = [];
-  const totalGrades = totalBases + notesPerOctave + 2; // octava extra de holgura
-  for (let g = 0; g < totalGrades; g++) {
-    const octIdx = Math.floor(g / notesPerOctave);
-    const stepIdx = g % notesPerOctave;
-    grades.push(rootMidi + intervals[stepIdx] + 12 * octIdx);
-  }
-
-  // El patrón usa "n = totalBases" como cuántas bases recorrer
   const seq = patternFn(totalBases);
 
-  let midis = seq.map(idx => grades[idx - 1]).filter(m => m != null);
+  let notes = seq.map(idx => scaleKeys[idx - 1]).filter(x => x != null);
 
-  // Si no permitimos salir del rango, aplicamos rebote
+  // Si no permitimos salir del rango, aplicamos rebote sobre el midi
+  // y recalculamos vexKey con la enarmonía correspondiente
   if (!allowOutOfRange) {
-    midis = midis.map(m => bounceMidi(m, minM, maxM));
+    const preferFlats = prefersFlats(root);
+    notes = notes.map(n => {
+      const bm = bounceMidi(n.midi, minM, maxM);
+      if (bm === n.midi) return n;
+      return { midi: bm, vexKey: midiToVexKey(bm, preferFlats) };
+    });
   }
-  return midis;
+  return notes;
 }
 
 // Si midi > maxM, baja octavas; si < minM, sube octavas. Así las notas
@@ -739,14 +851,17 @@ function buildMeasures() {
   // Para cada bloque, construimos su secuencia de notas y la partimos
   // en compases que suman exactamente ticksPerMeasure.
   const blocksData = state.blocks.map((block, blockIndex) => {
-    const allowOutOfRange = block.allowOutOfRange !== false; // por defecto true
-    const midis = buildBlockNotes(block, rangeMin, rangeMax, allowOutOfRange);
-    const preferFlats = prefersFlats(block.root);
+    const allowOutOfRange = block.allowOutOfRange !== false;
+    const noteObjs = buildBlockNotes(block, rangeMin, rangeMax, allowOutOfRange);
     const noteTicks = durationTicks(block.duration);
 
-    // Lista plana de eventos de este bloque
-    const events = midis.map(midi => ({
-      type: 'note', midi, preferFlats, dur: block.duration, ticks: noteTicks,
+    // Lista plana de eventos
+    const events = noteObjs.map(no => ({
+      type: 'note',
+      midi: no.midi,
+      vexKey: no.vexKey,
+      dur: block.duration,
+      ticks: noteTicks,
     }));
 
     // Rellenar con silencios hasta completar el último compás del bloque
@@ -941,7 +1056,9 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
         if (n.type === 'rest') {
           vexNotes.push(new VF.StaveNote({ keys: ['b/4'], duration: n.dur, clef: 'treble' }));
         } else {
-          const key = midiToVexKey(n.midi, n.preferFlats);
+          // Usar vexKey si viene preescrito (ortografía correcta de la escala),
+          // si no, calcular desde MIDI con preferFlats
+          const key = n.vexKey || midiToVexKey(n.midi, n.preferFlats);
           const sn = new VF.StaveNote({ keys: [key], duration: n.dur, clef: 'treble', auto_stem: true });
           const accMatch = key.match(/[a-g]([#b]+)/);
           if (accMatch) sn.addModifier(new VF.Accidental(accMatch[1]), 0);
@@ -962,15 +1079,13 @@ function drawMeasuresOnContext(VF, ctx, measures, opts) {
   });
 
   // Contar acidentales por compás para repartir ancho proporcionalmente
-  // (un compás con 4 bemoles necesita más ancho que uno con 0).
   const weightsPerMeasure = measures.map((m, mi) => {
     const noteCount = m.notes.length;
     const accCount = m.notes.filter(n => {
       if (n.type !== 'note') return false;
-      const key = midiToVexKey(n.midi, n.preferFlats);
+      const key = n.vexKey || midiToVexKey(n.midi, n.preferFlats);
       return /[a-g]([#b]+)/.test(key);
     }).length;
-    // Cada nota pesa 1, cada acidental suma 0.5 extra
     return Math.max(1, noteCount + accCount * 0.5);
   });
   const totalWeight = weightsPerMeasure.reduce((a,b) => a+b, 0) || 1;
@@ -1097,7 +1212,7 @@ function renderScore() {
       const noteCount = bd.measures.reduce((a, m) => a + m.notes.length, 0);
       const accCount = bd.measures.reduce((a, m) => a + m.notes.filter(n => {
         if (n.type !== 'note') return false;
-        const key = midiToVexKey(n.midi, n.preferFlats);
+        const key = n.vexKey || midiToVexKey(n.midi, n.preferFlats);
         return /[a-g]([#b]+)/.test(key);
       }).length, 0);
 
@@ -1108,15 +1223,15 @@ function renderScore() {
       const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
       const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
       // topSpace muy reducido: el título va dentro del SVG, pegado al stave
-      const topSpace = Math.max(14, 10 + linesAbove * 14);
-      const bottomSpace = Math.max(28, 20 + linesBelow * 14);
+      const topSpace = Math.max(18, 12 + linesAbove * 18);
+      const bottomSpace = Math.max(34, 24 + linesBelow * 18);
       const staveHeight = 50;
       const innerHeight = topSpace + staveHeight + bottomSpace;
       const physHeight = Math.ceil(innerHeight * SCALE);
 
       const blockWrap = document.createElement('div');
       blockWrap.className = 'score-block';
-      blockWrap.style.cssText = 'margin-bottom: 14px; width: ' + physWidth + 'px;';
+      blockWrap.style.cssText = 'margin-bottom: 22px; width: ' + physWidth + 'px;';
 
       const svgMount = document.createElement('div');
       svgMount.style.cssText = 'width:' + physWidth + 'px; background: transparent; overflow: visible;';
@@ -1356,14 +1471,14 @@ function renderScoreMultiSystem() {
   blocksData.forEach((bd) => {
     const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
     const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-    const topSpace = Math.max(14, 10 + linesAbove * 14);
-    const bottomSpace = Math.max(28, 20 + linesBelow * 14);
+    const topSpace = Math.max(18, 12 + linesAbove * 18);
+    const bottomSpace = Math.max(34, 24 + linesBelow * 18);
     const staveHeight = 50;
     const blockHeight = topSpace + staveHeight + bottomSpace;
 
     const blockWrap = document.createElement('div');
     blockWrap.className = 'score-block';
-    blockWrap.style.cssText = 'margin-bottom: 14px;';
+    blockWrap.style.cssText = 'margin-bottom: 22px;';
 
     const svgMount = document.createElement('div');
     svgMount.style.cssText = 'width:' + svgWidth + 'px; background: transparent; overflow: visible;';
@@ -1547,7 +1662,7 @@ async function generatePdfSvg(VF) {
       const mNotes = m.notes.length;
       const mAcc = m.notes.filter(n => {
         if (n.type !== 'note') return false;
-        const key = midiToVexKey(n.midi, n.preferFlats);
+        const key = n.vexKey || midiToVexKey(n.midi, n.preferFlats);
         return /[a-g]([#b]+)/.test(key);
       }).length;
       const mw = Math.max(80, mNotes * 26 + mAcc * 10);
@@ -1600,8 +1715,8 @@ async function generatePdfSvg(VF) {
 
         const linesAbove = Math.max(0, Math.ceil((ln.highestMidi - 77) / 2));
         const linesBelow = Math.max(0, Math.ceil((64 - ln.lowestMidi) / 2));
-        const topSpace = Math.max(14, 10 + linesAbove * 14);
-        const bottomSpace = Math.max(28, 20 + linesBelow * 14);
+        const topSpace = Math.max(18, 12 + linesAbove * 18);
+        const bottomSpace = Math.max(34, 24 + linesBelow * 18);
         const innerHeight = topSpace + 50 + bottomSpace;
         const physHeight = Math.ceil(innerHeight * SCALE);
 
@@ -1664,7 +1779,7 @@ async function generatePdfSvg(VF) {
     pdf.text('Tempo = ' + tempo + '   -   ' + timesig, pageW / 2, 62, { align: 'center' });
 
     let y = marginTop;
-    const blockGap = 18;
+    const blockGap = 24;
     const lineGap = 6;
 
     for (let i = 0; i < blockAssets.length; i++) {
