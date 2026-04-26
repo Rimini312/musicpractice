@@ -526,10 +526,15 @@ const SCALES = {
 const PATTERNS = {
   "Escala":               (n) => mirror(rangeSeq(1, n)),
   "Terceras":             (n) => pairsUpDown(n, 2),
+  "Terceras (3-1)":       (n) => pairsRevUpDown(n, 2),
   "Cuartas":              (n) => pairsUpDown(n, 3),
+  "Cuartas (4-1)":        (n) => pairsRevUpDown(n, 3),
   "Quintas":              (n) => pairsUpDown(n, 4),
+  "Quintas (5-1)":        (n) => pairsRevUpDown(n, 4),
   "Sextas":               (n) => pairsUpDown(n, 5),
+  "Sextas (6-1)":         (n) => pairsRevUpDown(n, 5),
   "Octavas":              (n) => pairsUpDown(n, 7),
+  "Octavas (8-1)":        (n) => pairsRevUpDown(n, 7),
   "Grupos de 3":          (n) => groupsUpDown(n, 3),
   "Grupos de 3 (3-2-1)":  (n) => groupsRevUpDown(n, 3),
   "Grupos de 4":          (n) => groupsUpDown(n, 4),
@@ -561,6 +566,17 @@ function pairsUpDown(n, step) {
   for (let i = 1; i <= n; i++) up.push(i, i + step);
   const down = [];
   for (let i = n; i >= 1; i--) down.push(i + step, i);
+  return [...up, ...down];
+}
+
+// Pares REVERSE: cada par invertido (empezar por la nota aguda).
+// Ej. cuartas (step=3): i=1 → [4,1], i=2 → [5,2]... como F-C, G-D, A-E...
+// La base (segunda nota) sigue avanzando 1 a n. Bajada simétrica.
+function pairsRevUpDown(n, step) {
+  const up = [];
+  for (let i = 1; i <= n; i++) up.push(i + step, i);
+  const down = [];
+  for (let i = n; i >= 1; i--) down.push(i, i + step);
   return [...up, ...down];
 }
 
@@ -1223,8 +1239,8 @@ function renderScore() {
       const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
       const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
       // topSpace muy reducido: el título va dentro del SVG, pegado al stave
-      const topSpace = Math.max(18, 12 + linesAbove * 18);
-      const bottomSpace = Math.max(34, 24 + linesBelow * 18);
+      const topSpace = 50; // margen fijo generoso arriba
+      const bottomSpace = 60; // margen fijo generoso abajo
       const staveHeight = 50;
       const innerHeight = topSpace + staveHeight + bottomSpace;
       const physHeight = Math.ceil(innerHeight * SCALE);
@@ -1471,8 +1487,8 @@ function renderScoreMultiSystem() {
   blocksData.forEach((bd) => {
     const linesAbove = Math.max(0, Math.ceil((bd.highestMidi - 77) / 2));
     const linesBelow = Math.max(0, Math.ceil((64 - bd.lowestMidi) / 2));
-    const topSpace = Math.max(18, 12 + linesAbove * 18);
-    const bottomSpace = Math.max(34, 24 + linesBelow * 18);
+    const topSpace = 50; // margen fijo generoso arriba
+    const bottomSpace = 60; // margen fijo generoso abajo
     const staveHeight = 50;
     const blockHeight = topSpace + staveHeight + bottomSpace;
 
@@ -1715,8 +1731,8 @@ async function generatePdfSvg(VF) {
 
         const linesAbove = Math.max(0, Math.ceil((ln.highestMidi - 77) / 2));
         const linesBelow = Math.max(0, Math.ceil((64 - ln.lowestMidi) / 2));
-        const topSpace = Math.max(18, 12 + linesAbove * 18);
-        const bottomSpace = Math.max(34, 24 + linesBelow * 18);
+        const topSpace = 50; // margen fijo generoso arriba
+        const bottomSpace = 60; // margen fijo generoso abajo
         const innerHeight = topSpace + 50 + bottomSpace;
         const physHeight = Math.ceil(innerHeight * SCALE);
 
