@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Escalas · Estudio</title>
+</head>
+<body>
+  <p id="loading" style="font-family:Arial,sans-serif;padding:20px">
+    Cargando Music Practice…
+  </p>
+
+  <script>
+  (() => {
+    const SOURCE_URL =
+      'https://raw.githubusercontent.com/Rimini312/musicpractice/5eab16acc1f844d654c9ba7be64ef327cf16d89f/index.html';
+
+    const ORIGINAL = `function renderBlocks() {
+  const container = document.getElementById('blocks');
+  const empty = document.getElementById('emptyState');
+  const count = document.getElementById('blockCount');
+
+  container.innerHTML = '';
+  if (state.blocks.length === 0) {
+    container.appendChild(empty);
+    count.textContent = '';
+    return;
+  }`;
+
+    const CORRECTED = `function renderBlocks() {
+  const container = document.getElementById('blocks');
+  const count = document.getElementById('blockCount');
+
+  container.replaceChildren();
+
+  if (state.blocks.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.id = 'emptyState';
+    empty.textContent = 'Añade un bloque para empezar';
+
+    container.appendChild(empty);
+    count.textContent = '';
+    return;
+  }`;
+
+    fetch(SOURCE_URL, { cache: 'no-store' })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`No se pudo cargar el código original (${response.status})`);
+        }
+        return response.text();
+      })
+      .then(source => {
+        if (!source.includes(ORIGINAL)) {
+          throw new Error('No se encontró el fragmento que debía corregirse.');
+        }
+
+        const correctedSource = source.replace(ORIGINAL, CORRECTED);
+
+        document.open();
+        document.write(correctedSource);
+        document.close();
+      })
+      .catch(error => {
+        console.error(error);
+        document.getElementById('loading').innerHTML =
+          '<strong>Error al cargar Music Practice:</strong><br>' +
+          String(error.message || error);
+      });
+  })();
+  </script>
+</body>
+</html>
